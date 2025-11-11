@@ -11,7 +11,7 @@ config :zapier_triggers, ZapierTriggers.Repo,
   hostname: "localhost",
   database: "zapier_triggers_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: 2
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -25,3 +25,10 @@ config :logger, level: :warning
 
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
+
+# Configure Oban for testing with minimal resources
+config :zapier_triggers, Oban,
+  repo: ZapierTriggers.Repo,
+  plugins: false,
+  queues: false,
+  testing: :inline

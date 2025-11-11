@@ -17,7 +17,10 @@ defmodule ZapierTriggers.Workers.DeliveryWorker do
   import Ecto.Query
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"event_id" => event_id, "delivery_id" => delivery_id}, attempt: attempt}) do
+  def perform(%Oban.Job{
+        args: %{"event_id" => event_id, "delivery_id" => delivery_id},
+        attempt: attempt
+      }) do
     # Load event, delivery, and organization
     event = Repo.get!(Event, event_id) |> Repo.preload(:organization)
     delivery = Repo.get!(EventDelivery, delivery_id)
@@ -28,14 +31,19 @@ defmodule ZapierTriggers.Workers.DeliveryWorker do
       Logger.info("Webhook delivery disabled, marking as skipped", event_id: event_id)
       update_delivery(delivery, "skipped", nil, "Webhook delivery disabled for testing")
       :ok
-    # Skip if no webhook URL configured
-    elsif !organization.webhook_url do
-      Logger.warning("No webhook URL configured for organization #{organization.id}, marking as failed")
-      update_delivery(delivery, "failed", nil, "No webhook URL configured")
-      :ok
+      # Skip if no webhook URL configured
     else
-      # Attempt delivery
-      perform_delivery(event, delivery, organization, event_id, attempt)
+      if !organization.webhook_url do
+        Logger.warning(
+          "No webhook URL configured for organization #{organization.id}, marking as failed"
+        )
+
+        update_delivery(delivery, "failed", nil, "No webhook URL configured")
+        :ok
+      else
+        # Attempt delivery
+        perform_delivery(event, delivery, organization, event_id, attempt)
+      end
     end
   end
 

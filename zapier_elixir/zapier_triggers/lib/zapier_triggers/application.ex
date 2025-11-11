@@ -7,24 +7,29 @@ defmodule ZapierTriggers.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      ZapierTriggersWeb.Telemetry,
-      ZapierTriggers.Repo,
-      {DNSCluster, query: Application.get_env(:zapier_triggers, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: ZapierTriggers.PubSub},
-      # Start Finch for HTTP requests
-      {Finch, name: ZapierTriggers.Finch},
-      # Start Cachex for deduplication cache
-      Supervisor.child_spec({Cachex, name: :dedup_cache}, id: :dedup_cache),
-      # Start Cachex for authentication cache (5-minute TTL)
-      Supervisor.child_spec({Cachex, name: :auth_cache}, id: :auth_cache),
-      # Start Oban for background jobs
-      {Oban, Application.fetch_env!(:zapier_triggers, Oban)},
-      # Start event queue processor for async event ingestion
-      ZapierTriggers.Workers.EventQueueProcessor,
-      # Start the endpoint (HTTP server)
-      ZapierTriggersWeb.Endpoint
-    ]
+    # Skip EventQueueProcessor in test environment to reduce database connections
+    queue_processor =
+      if Mix.env() == :test do
+        []
+      else
+        [ZapierTriggers.Workers.EventQueueProcessor]
+      end
+
+    children =
+      [
+        ZapierTriggersWeb.Telemetry,
+        ZapierTriggers.Repo,
+        {DNSCluster, query: Application.get_env(:zapier_triggers, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: ZapierTriggers.PubSub},
+        # Start Cachex for deduplication cache
+        Supervisor.child_spec({Cachex, name: :dedup_cache}, id: :dedup_cache),
+        # Start Cachex for authentication cache (5-minute TTL)
+        Supervisor.child_spec({Cachex, name: :auth_cache}, id: :auth_cache),
+        # Start Oban for background jobs
+        {Oban, Application.fetch_env!(:zapier_triggers, Oban)},
+        # Start the endpoint (HTTP server)
+        ZapierTriggersWeb.Endpoint
+      ] ++ queue_processor
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
