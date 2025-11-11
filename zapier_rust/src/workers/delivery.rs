@@ -87,25 +87,38 @@ async fn process_single_delivery(client: Client, pool: PgPool, delivery: Pending
     });
 
     // Check if webhook delivery is disabled (for performance testing)
-    let result = if disable_webhook_delivery {
+    if disable_webhook_delivery {
         tracing::debug!(
             event_id = %delivery.event_id,
             "Webhook delivery disabled, marking as delivered without HTTP call"
         );
-        // Simulate successful response without making HTTP call
-        Ok(reqwest::Response::from(http::Response::builder()
-            .status(200)
-            .body("")
-            .unwrap()))
-    } else {
-        client
-            .post(&delivery.webhook_url)
-            .json(&payload)
-            .header("X-Event-ID", delivery.event_id.to_string())
-            .header("X-Event-Type", &delivery.event_type)
-            .send()
-            .await
-    };
+        // Skip HTTP call and mark as delivered
+        if let Err(e) = sqlx::query(
+            r#"
+            UPDATE event_deliveries
+            SET status = 'delivered',
+                response_status = 200,
+                updated_at = NOW()
+            WHERE id = $1
+            "#
+        )
+        .bind(delivery.delivery_id)
+        .execute(&pool)
+        .await
+        {
+            tracing::error!("Failed to update delivery status: {:?}", e);
+        }
+        return;
+    }
+
+    // Make actual HTTP request
+    let result = client
+        .post(&delivery.webhook_url)
+        .json(&payload)
+        .header("X-Event-ID", delivery.event_id.to_string())
+        .header("X-Event-Type", &delivery.event_type)
+        .send()
+        .await;
 
     match result {
         Ok(resp) if resp.status().is_success() => {

@@ -6,7 +6,6 @@ use uuid::Uuid;
 use crate::{
     error::ApiError,
     middleware::{auth::{generate_api_key, hash_api_key}, AuthenticatedOrg},
-    models::Organization,
     state::AppState,
 };
 

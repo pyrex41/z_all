@@ -5,6 +5,9 @@ mod middleware;
 mod models;
 mod state;
 mod workers;
+mod metrics;
+mod event_processor;
+mod auth_cache;
 
 use axum::{
     routing::{get, post},
@@ -51,8 +54,26 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Migrations complete");
 
+    // Initialize Prometheus metrics
+    metrics::init_metrics_exporter();
+    tracing::info!("Metrics exporter initialized");
+
+    // Create event processor with worker pool
+    let event_processor = event_processor::create_event_processor(pool.clone());
+    tracing::info!("Event processor initialized with worker pool");
+
+    // Create auth cache with cleanup task
+    let auth_cache = auth_cache::create_auth_cache();
+    auth_cache::start_cache_cleanup_task(Arc::clone(&auth_cache));
+    tracing::info!("Auth cache initialized with TTL cleanup");
+
     // Application state
-    let state = Arc::new(AppState::new(pool.clone(), config.clone()));
+    let state = Arc::new(AppState::new(
+        pool.clone(),
+        config.clone(),
+        event_processor,
+        auth_cache,
+    ));
 
     // Start delivery worker
     let _worker_handle = workers::start_delivery_worker(pool.clone(), config.disable_webhook_delivery);

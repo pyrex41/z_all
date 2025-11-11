@@ -17,6 +17,7 @@ sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "chrono", "uu
 
 # HTTP client
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+http = "1.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -44,7 +45,11 @@ bytes = "1.5"
 num_cpus = "1.16"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "event_ingestion"
+harness = false
 
 [profile.release]
 lto = "fat"
