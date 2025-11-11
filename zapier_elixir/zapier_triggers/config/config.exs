@@ -55,7 +55,8 @@ config :zapier_triggers, :disable_webhook_delivery, disable_webhook_delivery
 # These values can be tuned based on production load characteristics
 config :zapier_triggers, ZapierTriggers.Workers.EventQueueProcessor,
   min_poll_interval: 100,       # Minimum poll interval in ms (when queue is active)
-  max_poll_interval: 2_000,     # Maximum poll interval in ms (when queue is idle)
+  max_poll_interval: 2_000,     # Maximum poll interval in ms (exponential backoff)
+  idle_poll_interval: 30_000,   # Poll interval in ms when deeply idle (30 seconds)
   batch_size: 100,              # Number of events to process per batch
   max_concurrency: 20,          # Maximum concurrent processing tasks
   max_queue_depth: 1_000,       # Alert threshold for queue depth

@@ -25,6 +25,8 @@ defmodule ZapierTriggers.Application do
         Supervisor.child_spec({Cachex, name: :dedup_cache}, id: :dedup_cache),
         # Start Cachex for authentication cache (5-minute TTL)
         Supervisor.child_spec({Cachex, name: :auth_cache}, id: :auth_cache),
+        # Start Cachex for event queue cache (fast ingestion)
+        Supervisor.child_spec({Cachex, name: :event_queue_cache}, id: :event_queue_cache),
         # Start Oban for background jobs
         {Oban, Application.fetch_env!(:zapier_triggers, Oban)},
         # Start the endpoint (HTTP server)

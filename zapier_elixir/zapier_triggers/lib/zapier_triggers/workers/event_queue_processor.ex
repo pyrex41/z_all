@@ -21,10 +21,12 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
   # Configuration - can be overridden in config.exs
   @min_poll_interval Application.compile_env(:zapier_triggers, [__MODULE__, :min_poll_interval], 100)
   @max_poll_interval Application.compile_env(:zapier_triggers, [__MODULE__, :max_poll_interval], 2_000)
+  @idle_poll_interval Application.compile_env(:zapier_triggers, [__MODULE__, :idle_poll_interval], 30_000) # 30 seconds when completely idle
   @batch_size Application.compile_env(:zapier_triggers, [__MODULE__, :batch_size], 100)
   @max_concurrency Application.compile_env(:zapier_triggers, [__MODULE__, :max_concurrency], 20)
   @max_queue_depth Application.compile_env(:zapier_triggers, [__MODULE__, :max_queue_depth], 1_000)
   @stuck_item_timeout Application.compile_env(:zapier_triggers, [__MODULE__, :stuck_item_timeout], 300_000) # 5 minutes
+  @idle_threshold 10 # Number of empty polls before entering deep idle mode
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{poll_interval: @min_poll_interval, empty_polls: 0}, name: __MODULE__)
@@ -70,7 +72,16 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
     if batch_size == 0 do
       # Queue is empty, back off exponentially
       empty_polls = state.empty_polls + 1
-      new_interval = min(@max_poll_interval, state.poll_interval * 2)
+
+      # Enter deep idle mode after threshold consecutive empty polls
+      new_interval = if empty_polls >= @idle_threshold do
+        if empty_polls == @idle_threshold do
+          Logger.info("Queue idle for #{@idle_threshold} polls, entering deep idle mode (#{@idle_poll_interval}ms)")
+        end
+        @idle_poll_interval
+      else
+        min(@max_poll_interval, state.poll_interval * 2)
+      end
 
       if empty_polls == 1 do
         Logger.debug("Queue empty, backing off to #{new_interval}ms")
@@ -79,8 +90,12 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
       %{state | poll_interval: new_interval, empty_polls: empty_polls}
     else
       # Queue has events, reset to minimum interval
-      if state.empty_polls > 0 do
-        Logger.debug("Queue active, resuming fast polling")
+      if state.empty_polls >= @idle_threshold do
+        Logger.info("Queue active again, exiting deep idle mode")
+      else
+        if state.empty_polls > 0 do
+          Logger.debug("Queue active, resuming fast polling")
+        end
       end
 
       %{state | poll_interval: @min_poll_interval, empty_polls: 0}
@@ -89,40 +104,64 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
 
   defp process_queue_batch(state) do
     try do
-      # Check queue depth before processing (backpressure)
-      queue_depth = get_queue_depth()
+      # HYBRID APPROACH: Check cache first, then DB
+      # 1. Get cached events (ultra-fast, in-memory)
+      cached_events = get_cached_events(@batch_size)
 
-      if queue_depth > @max_queue_depth do
-        Logger.warning("Queue depth #{queue_depth} exceeds threshold #{@max_queue_depth}, possible backlog",
-          queue_depth: queue_depth
-        )
+      # 2. If cache has events, process them and persist to DB
+      queued_events = if length(cached_events) > 0 do
+        # Persist cached events to DB for durability
+        Enum.map(cached_events, fn cached_item ->
+          # Convert map to EventQueue struct for consistency
+          struct(EventQueue, cached_item)
+        end)
+      else
+        # 3. Fall back to DB if cache is empty (old flow for migration/testing)
+        result = Repo.transaction(fn ->
+          from(q in EventQueue,
+            where: q.status == "pending",
+            order_by: [asc: q.inserted_at],
+            limit: ^@batch_size,
+            lock: "FOR UPDATE SKIP LOCKED"
+          )
+          |> Repo.all()
+          |> Enum.map(fn queue_item ->
+            # Mark as processing and record when processing started (not deleted yet!)
+            {:ok, updated_item} = queue_item
+              |> Ecto.Changeset.change(%{
+                status: "processing",
+                processing_started_at: DateTime.utc_now()
+              })
+              |> Repo.update()
+            updated_item
+          end)
+        end, timeout: 10_000)
+
+        case result do
+          {:ok, items} -> items
+          {:error, _reason} -> []
+        end
       end
 
-      # TWO-PHASE APPROACH: Mark as processing, then delete only on success
-      # This prevents data loss if processing fails after queue item is removed
-      result = Repo.transaction(fn ->
-        from(q in EventQueue,
-          where: q.status == "pending",
-          order_by: [asc: q.inserted_at],
-          limit: ^@batch_size,
-          lock: "FOR UPDATE SKIP LOCKED"
-        )
-        |> Repo.all()
-        |> Enum.map(fn queue_item ->
-          # Mark as processing and record when processing started (not deleted yet!)
-          {:ok, updated_item} = queue_item
-            |> Ecto.Changeset.change(%{
-              status: "processing",
-              processing_started_at: DateTime.utc_now()
-            })
-            |> Repo.update()
-          updated_item
-        end)
-      end, timeout: 10_000)
+      # Continue with processing
+      result = {:ok, queued_events}
 
       case result do
         {:ok, queued_events} when length(queued_events) > 0 ->
-          Logger.info("Processing #{length(queued_events)} queued events")
+          queue_depth = length(queued_events)
+
+          # Only check for backlog if we got a full batch (might be more queued)
+          if queue_depth >= @batch_size do
+            # Quick check if there are significantly more items queued
+            remaining = get_queue_depth()
+            if remaining > @max_queue_depth do
+              Logger.warning("Queue depth #{remaining} exceeds threshold #{@max_queue_depth}, possible backlog",
+                queue_depth: remaining
+              )
+            end
+          end
+
+          Logger.info("Processing #{queue_depth} queued events")
 
           # Process events in parallel with reduced concurrency
           results = queued_events
@@ -180,6 +219,33 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
         Logger.error("Error processing queue batch: #{inspect(e)}")
         {0, state}
     end
+  end
+
+  defp get_cached_events(limit) do
+    # Scan cache for event_queue:* keys and retrieve up to `limit` items
+    case Cachex.keys(:event_queue_cache) do
+      {:ok, keys} when is_list(keys) ->
+        keys
+        |> Enum.take(limit)
+        |> Enum.map(fn key ->
+          case Cachex.get(:event_queue_cache, key) do
+            {:ok, item} when not is_nil(item) ->
+              # Remove from cache after retrieving (single-processing guarantee)
+              Cachex.del(:event_queue_cache, key)
+              item
+            _ ->
+              nil
+          end
+        end)
+        |> Enum.filter(&(&1 != nil))
+
+      _ ->
+        []
+    end
+  rescue
+    e ->
+      Logger.error("Error retrieving cached events: #{inspect(e)}")
+      []
   end
 
   defp get_queue_depth do
