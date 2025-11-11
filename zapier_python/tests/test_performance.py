@@ -3,15 +3,24 @@
 Tests the performance target: < 100ms response time for event ingestion.
 
 Run with: pytest tests/test_performance.py -v -s
+
+Environment variables:
+    TEST_API_URL: Base URL for testing (default: http://localhost:8000)
+    TEST_API_KEY: API key for authentication (default: test-api-key-change-in-prod)
 """
 
 import asyncio
+import os
 import statistics
 import time
 from uuid import uuid4
 
 import httpx
 import pytest
+
+# Test configuration from environment
+TEST_API_URL = os.getenv("TEST_API_URL", "http://localhost:8000")
+TEST_API_KEY = os.getenv("TEST_API_KEY", "test-api-key-change-in-prod")
 
 # Performance targets
 TARGET_API_RESPONSE_TIME_MS = 10  # API should respond in < 10ms (just queues)
@@ -22,8 +31,8 @@ WARNING_API_RESPONSE_TIME_MS = 20  # Warn if API takes > 20ms
 @pytest.mark.asyncio
 async def test_single_event_ingestion_latency():
     """Test single event ingestion meets < 10ms response time target."""
-    base_url = "http://localhost:8000"
-    api_key = "test-api-key-change-in-prod"  # Replace with valid API key
+    base_url = TEST_API_URL
+    api_key = TEST_API_KEY
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Warm-up request
@@ -75,8 +84,8 @@ async def test_single_event_ingestion_latency():
 @pytest.mark.asyncio
 async def test_concurrent_event_ingestion_throughput():
     """Test concurrent event ingestion throughput and average latency."""
-    base_url = "http://localhost:8000"
-    api_key = "test-api-key-change-in-prod"  # Replace with valid API key
+    base_url = TEST_API_URL
+    api_key = TEST_API_KEY
 
     num_events = 100
     concurrency = 10
@@ -166,8 +175,8 @@ async def test_concurrent_event_ingestion_throughput():
 @pytest.mark.asyncio
 async def test_burst_traffic_handling():
     """Test handling of burst traffic (many events at once)."""
-    base_url = "http://localhost:8000"
-    api_key = "test-api-key-change-in-prod"  # Replace with valid API key
+    base_url = TEST_API_URL
+    api_key = TEST_API_KEY
 
     num_events = 50
     burst_size = 50  # All at once

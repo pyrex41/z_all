@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from zapier_triggers_api.config import settings
 from zapier_triggers_api.middleware import PerformanceMonitoringMiddleware
-from zapier_triggers_api.routes import api_keys, events, inbox, webhooks
+from zapier_triggers_api.routes import api_keys, events, health, inbox, webhooks
 
 app = FastAPI(
     title="Zapier Triggers API",
@@ -30,6 +30,7 @@ app.add_middleware(
 # Include routers
 # Public routes (no auth required)
 app.include_router(api_keys.router)
+app.include_router(health.router)
 
 # Protected routes (require X-API-Key header)
 app.include_router(events.router)

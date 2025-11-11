@@ -28,7 +28,10 @@ async def queue_event_for_processing(
     dedup_id: str | None,
     redis: Redis,
 ) -> None:
-    """Queue event to Redis Streams for async processing (persistence + delivery)."""
+    """Queue event to Redis Streams for async processing (persistence + delivery).
+
+    Uses MAXLEN to prevent unbounded stream growth.
+    """
     stream_data: dict[str, str | int | float] = {
         "event_id": str(event_id),
         "org_id": str(org_id),
@@ -37,7 +40,13 @@ async def queue_event_for_processing(
         "dedup_id": dedup_id or "",
         "timestamp": datetime.utcnow().isoformat(),
     }
-    await redis.xadd(settings.redis_stream_name, stream_data)  # type: ignore[arg-type]
+    # Use MAXLEN ~ (approximate) for better performance
+    await redis.xadd(
+        settings.redis_stream_name,
+        stream_data,  # type: ignore[arg-type]
+        maxlen=settings.redis_stream_max_length,
+        approximate=True,  # ~MAXLEN for better performance
+    )
 
 
 @router.post(

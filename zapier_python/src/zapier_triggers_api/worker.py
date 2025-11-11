@@ -139,13 +139,21 @@ async def queue_webhook_delivery(
 
     This prevents webhook delivery (which can take 30s) from blocking
     event persistence and processing.
+
+    Uses MAXLEN to prevent unbounded stream growth.
     """
     delivery_data: dict[str, str | int | float] = {
         "event_id": event_id,
         "delivery_id": delivery_id,
         "timestamp": datetime.utcnow().isoformat(),
     }
-    await redis.xadd(WEBHOOK_DELIVERY_STREAM, delivery_data)  # type: ignore[arg-type]
+    # Use MAXLEN to prevent unbounded growth
+    await redis.xadd(
+        WEBHOOK_DELIVERY_STREAM,
+        delivery_data,  # type: ignore[arg-type]
+        maxlen=settings.redis_stream_max_length,
+        approximate=True,
+    )
     logger.debug(f"Queued webhook delivery for event {event_id}")
 
 
@@ -164,6 +172,8 @@ async def process_event_from_queue(
     Webhook delivery is queued separately to prevent blocking (30s timeout issue).
     """
     start_time = time.perf_counter()
+    event_id = None
+    processing_status = "unknown"
 
     try:
         # Parse queue data
@@ -179,9 +189,12 @@ async def process_event_from_queue(
         if dedup_id:
             is_duplicate = await check_deduplication(dedup_id, str(org_id), redis)
             if is_duplicate:
+                duration_ms = (time.perf_counter() - start_time) * 1000
                 logger.warning(
-                    f"Duplicate event {event_id} (dedup_id: {dedup_id}) detected, skipping"
+                    f"Duplicate event {event_id} (dedup_id: {dedup_id}) detected "
+                    f"in {duration_ms:.2f}ms"
                 )
+                processing_status = "duplicate"
                 return
 
         # 2. Check if event already persisted (idempotency)
@@ -189,8 +202,24 @@ async def process_event_from_queue(
         existing_event = (await session.exec(existing_event_query)).first()
 
         if existing_event:
-            logger.info(f"Event {event_id} already persisted, skipping to delivery queue")
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            logger.info(
+                f"Event {event_id} already persisted, skipping to delivery queue "
+                f"({duration_ms:.2f}ms)"
+            )
             event = existing_event
+            processing_status = "already_exists"
+
+            # Still queue webhook delivery if needed
+            delivery_query = select(EventDelivery).where(EventDelivery.event_id == event_id)
+            delivery = (await session.exec(delivery_query)).first()
+            if delivery:
+                await queue_webhook_delivery(
+                    event_id=str(event_id),
+                    delivery_id=str(delivery.id),
+                    redis=redis,
+                )
+            return
         else:
             # 3. Persist event to database (fast write)
             event = Event(
@@ -224,6 +253,7 @@ async def process_event_from_queue(
 
         # Calculate processing time
         duration_ms = (time.perf_counter() - start_time) * 1000
+        processing_status = "persisted"
 
         logger.info(
             f"Event {event_id} persisted in {duration_ms:.2f}ms "
@@ -246,7 +276,12 @@ async def process_event_from_queue(
             )
 
     except Exception as e:
-        logger.error(f"Error processing event from queue: {e}", exc_info=True)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        processing_status = "error"
+        logger.error(
+            f"Error processing event {event_id} from queue after {duration_ms:.2f}ms: {e}",
+            exc_info=True,
+        )
 
 
 async def process_single_event(
@@ -256,8 +291,11 @@ async def process_single_event(
     session_factory: Callable[[], Any],
     consumer_group: str,
     stream_name: str,
-) -> None:
-    """Process a single event and acknowledge it."""
+) -> tuple[bool, str]:
+    """Process a single event and acknowledge it.
+
+    Returns: (success: bool, status: str) for error tracking
+    """
     try:
         # Process event from queue (persistence only - fast)
         async for session in session_factory():
@@ -266,9 +304,15 @@ async def process_single_event(
 
         # Acknowledge message
         await redis.xack(stream_name, consumer_group, message_id)
+        return (True, "success")
 
     except Exception as e:
-        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+        # Error is isolated - doesn't affect other concurrent events
+        logger.error(
+            f"Error processing message {message_id} (isolated, won't affect other events): {e}",
+            exc_info=True,
+        )
+        return (False, f"error: {str(e)[:100]}")
 
 
 async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> None:
@@ -278,6 +322,7 @@ async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> No
     - Processes multiple events concurrently (up to MAX_CONCURRENT_EVENTS)
     - Non-blocking webhook delivery (queued separately)
     - Fast persistence (< 100ms target per event)
+    - Error isolation: One failing event doesn't affect others
     """
     consumer_group = "event-processors"
     # Dynamic consumer name for horizontal scaling
@@ -310,7 +355,9 @@ async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> No
                 if not stream_messages:
                     continue
 
-                # Process messages concurrently
+                batch_start = time.perf_counter()
+
+                # Process messages concurrently with error isolation
                 tasks = [
                     process_single_event(
                         message_id,
@@ -324,7 +371,23 @@ async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> No
                 ]
 
                 # Wait for all concurrent tasks to complete
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # return_exceptions=True ensures error isolation
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Log batch statistics
+                batch_duration = (time.perf_counter() - batch_start) * 1000
+                success_count = sum(1 for r in results if isinstance(r, tuple) and r[0])
+                error_count = len(results) - success_count
+
+                if error_count > 0:
+                    logger.warning(
+                        f"Batch processed: {success_count} success, {error_count} errors "
+                        f"in {batch_duration:.2f}ms"
+                    )
+                else:
+                    logger.debug(
+                        f"Batch processed: {success_count} events in {batch_duration:.2f}ms"
+                    )
 
         except Exception as e:
             logger.error(f"Stream consumer error: {e}", exc_info=True)
