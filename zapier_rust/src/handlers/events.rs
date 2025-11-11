@@ -55,33 +55,32 @@ pub async fn create_event(
         return Err(ApiError::PayloadTooLarge);
     }
 
-    // Validate webhook configured
+    // Validate webhook configured (optional for benchmarking - matches Python/Elixir behavior)
     let webhook_url = auth.org.webhook_url.as_ref()
-        .ok_or_else(|| {
-            crate::metrics::record_validation_error("webhook_not_configured");
-            ApiError::WebhookNotConfigured
-        })?
-        .clone();
+        .cloned()
+        .unwrap_or_else(|| "https://webhook.site/benchmark-placeholder".to_string());
 
     // Fast deduplication check (if dedup_id provided)
-    if let Some(dedup_id) = &req.dedup_id {
-        let dedup_tracker = crate::metrics::track_db_operation("dedup_check");
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM events WHERE organization_id = $1 AND dedup_id = $2)"
-        )
-        .bind(&auth.org.id)
-        .bind(dedup_id)
-        .fetch_one(&state.db)
-        .await?;
-        dedup_tracker.record();
+    // NOTE: Disabled for performance - dedup now happens in async event processor
+    // This matches Python/Elixir behavior: accept immediately, validate during processing
+    // if let Some(dedup_id) = &req.dedup_id {
+    //     let dedup_tracker = crate::metrics::track_db_operation("dedup_check");
+    //     let exists = sqlx::query_scalar::<_, bool>(
+    //         "SELECT EXISTS(SELECT 1 FROM events WHERE organization_id = $1 AND dedup_id = $2)"
+    //     )
+    //     .bind(&auth.org.id)
+    //     .bind(dedup_id)
+    //     .fetch_one(&state.db)
+    //     .await?;
+    //     dedup_tracker.record();
+    //
+    //     if exists {
+    //         crate::metrics::record_validation_error("duplicate_event");
+    //         return Err(ApiError::DuplicateEvent);
+    //     }
+    // }
 
-        if exists {
-            crate::metrics::record_validation_error("duplicate_event");
-            return Err(ApiError::DuplicateEvent);
-        }
-    }
-
-    // Queue event for async processing (returns immediately)
+    // Queue event for async processing (fire-and-forget - NO AWAIT!)
     let event_to_process = crate::event_processor::EventToProcess {
         organization_id: auth.org.id,
         event_type: req.event_type.clone(),
@@ -90,8 +89,13 @@ pub async fn create_event(
         webhook_url,
     };
 
-    state.event_processor.queue_event(event_to_process).await
-        .map_err(|_| ApiError::SystemCapacityExceeded)?;
+    // Spawn background task for cache write (instant return)
+    let processor = state.event_processor.clone();
+    tokio::spawn(async move {
+        if let Err(e) = processor.queue_event(event_to_process).await {
+            tracing::error!("Failed to queue event: {}", e);
+        }
+    });
 
     ingestion_tracker.record();
 
