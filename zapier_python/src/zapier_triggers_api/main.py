@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from zapier_triggers_api.config import settings
+from zapier_triggers_api.middleware import PerformanceMonitoringMiddleware
 from zapier_triggers_api.routes import api_keys, events, inbox, webhooks
 
 app = FastAPI(
@@ -13,6 +14,9 @@ app = FastAPI(
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
+
+# Performance monitoring (must be first to measure full request time)
+app.add_middleware(PerformanceMonitoringMiddleware)
 
 # CORS configuration
 app.add_middleware(

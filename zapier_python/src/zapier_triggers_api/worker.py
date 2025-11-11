@@ -1,8 +1,17 @@
-"""Background worker for event processing (persistence + delivery)."""
+"""Background worker for event processing (persistence + delivery).
+
+PERFORMANCE OPTIMIZATIONS:
+- Concurrent event processing (configurable concurrency limit)
+- Separate webhook delivery queue to prevent blocking
+- Fast DB persistence (< 100ms target)
+- Async webhook delivery with retries
+"""
 
 import asyncio
 import json
 import logging
+import os
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -22,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 5
 RETRY_DELAYS = [30, 60, 300, 900, 3600]  # 30s, 1m, 5m, 15m, 1h
+
+# Performance configuration
+MAX_CONCURRENT_EVENTS = int(os.environ.get("MAX_CONCURRENT_EVENTS", "10"))
+WEBHOOK_DELIVERY_STREAM = "zapier:webhook-deliveries"
 
 
 async def calculate_next_retry(attempts: int) -> datetime | None:
@@ -117,19 +130,41 @@ async def check_deduplication(
     return False  # Not a duplicate
 
 
+async def queue_webhook_delivery(
+    event_id: str,
+    delivery_id: str,
+    redis: Redis,
+) -> None:
+    """Queue webhook delivery to separate stream for async processing.
+
+    This prevents webhook delivery (which can take 30s) from blocking
+    event persistence and processing.
+    """
+    delivery_data: dict[str, str | int | float] = {
+        "event_id": event_id,
+        "delivery_id": delivery_id,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    await redis.xadd(WEBHOOK_DELIVERY_STREAM, delivery_data)  # type: ignore[arg-type]
+    logger.debug(f"Queued webhook delivery for event {event_id}")
+
+
 async def process_event_from_queue(
     event_data: dict[str, bytes],
     redis: Redis,
     session: AsyncSession,
 ) -> None:
-    """Process event from Redis Streams queue - full persistence + delivery.
+    """Process event from Redis Streams queue - FAST persistence only.
 
-    This handles the complete event lifecycle:
-    1. Deduplication check
-    2. Database persistence
-    3. Delivery record creation
-    4. Webhook delivery
+    PERFORMANCE OPTIMIZED: This now handles ONLY:
+    1. Deduplication check (Redis - fast)
+    2. Database persistence (< 100ms target)
+    3. Queue webhook delivery (separate worker)
+
+    Webhook delivery is queued separately to prevent blocking (30s timeout issue).
     """
+    start_time = time.perf_counter()
+
     try:
         # Parse queue data
         event_id = UUID(event_data[b"event_id"].decode())
@@ -140,7 +175,7 @@ async def process_event_from_queue(
         timestamp_str = event_data[b"timestamp"].decode()
         created_at = datetime.fromisoformat(timestamp_str)
 
-        # 1. Check deduplication (async)
+        # 1. Check deduplication (Redis - ~1ms)
         if dedup_id:
             is_duplicate = await check_deduplication(dedup_id, str(org_id), redis)
             if is_duplicate:
@@ -154,10 +189,10 @@ async def process_event_from_queue(
         existing_event = (await session.exec(existing_event_query)).first()
 
         if existing_event:
-            logger.info(f"Event {event_id} already persisted, skipping to delivery")
+            logger.info(f"Event {event_id} already persisted, skipping to delivery queue")
             event = existing_event
         else:
-            # 3. Persist event to database
+            # 3. Persist event to database (fast write)
             event = Event(
                 id=event_id,
                 org_id=org_id,
@@ -184,38 +219,69 @@ async def process_event_from_queue(
             )
             session.add(delivery)
 
-        # Commit event + delivery
+        # Commit event + delivery (fast DB write)
         await session.commit()
-        logger.info(f"Event {event_id} persisted successfully")
 
-        # 5. Fetch org and deliver webhook
-        org_query = select(Organization).where(Organization.id == org_id)
-        org = (await session.exec(org_query)).first()
+        # Calculate processing time
+        duration_ms = (time.perf_counter() - start_time) * 1000
 
-        if not org:
-            logger.error(f"Organization {org_id} not found for event {event_id}")
-            return
+        logger.info(
+            f"Event {event_id} persisted in {duration_ms:.2f}ms "
+            f"(target: < 100ms)"
+        )
 
-        if not org.webhook_url:
-            logger.warning(f"No webhook URL configured for org {org_id}, skipping delivery")
-            return
+        # 5. Queue webhook delivery (separate worker - NON-BLOCKING)
+        # This prevents 30s webhook timeout from blocking event processing
+        await queue_webhook_delivery(
+            event_id=str(event_id),
+            delivery_id=str(delivery.id),
+            redis=redis,
+        )
 
-        # Check if already delivered
-        if delivery.status == DeliveryStatus.DELIVERED:
-            logger.info(f"Event {event_id} already delivered")
-            return
-
-        # Deliver webhook
-        await deliver_event(event, delivery, org, session)
+        # Log performance warning if too slow
+        if duration_ms > 100:
+            logger.warning(
+                f"SLOW event processing: {event_id} took {duration_ms:.2f}ms "
+                f"(target: < 100ms)"
+            )
 
     except Exception as e:
         logger.error(f"Error processing event from queue: {e}", exc_info=True)
 
 
+async def process_single_event(
+    message_id: bytes,
+    data: dict[str, bytes],
+    redis: Redis,
+    session_factory: Callable[[], Any],
+    consumer_group: str,
+    stream_name: str,
+) -> None:
+    """Process a single event and acknowledge it."""
+    try:
+        # Process event from queue (persistence only - fast)
+        async for session in session_factory():
+            await process_event_from_queue(data, redis, session)
+            break
+
+        # Acknowledge message
+        await redis.xack(stream_name, consumer_group, message_id)
+
+    except Exception as e:
+        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+
+
 async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> None:
-    """Consume events from Redis Streams for async processing."""
+    """Consume events from Redis Streams with CONCURRENT processing.
+
+    PERFORMANCE OPTIMIZED:
+    - Processes multiple events concurrently (up to MAX_CONCURRENT_EVENTS)
+    - Non-blocking webhook delivery (queued separately)
+    - Fast persistence (< 100ms target per event)
+    """
     consumer_group = "event-processors"
-    consumer_name = "processor-1"
+    # Dynamic consumer name for horizontal scaling
+    consumer_name = f"processor-{os.getpid()}"
 
     # Create consumer group if not exists
     try:
@@ -225,47 +291,153 @@ async def consume_stream(redis: Redis, session_factory: Callable[[], Any]) -> No
     except Exception:
         pass  # Group already exists
 
-    logger.info("Event processor started, listening for events...")
-    logger.info("Processing: deduplication, persistence, and delivery")
+    logger.info(f"Event processor started (PID: {os.getpid()})")
+    logger.info(f"Concurrent processing: {MAX_CONCURRENT_EVENTS} events")
+    logger.info("Processing: deduplication + persistence (webhooks queued separately)")
 
     while True:
         try:
-            # Read from stream
+            # Read batch of messages
             messages = await redis.xreadgroup(
                 groupname=consumer_group,
                 consumername=consumer_name,
                 streams={settings.redis_stream_name: ">"},
-                count=10,
+                count=MAX_CONCURRENT_EVENTS,  # Fetch up to concurrency limit
                 block=5000,
             )
 
             for stream_name, stream_messages in messages:
-                for message_id, data in stream_messages:
-                    try:
-                        # Process event from queue (full lifecycle)
-                        async for session in session_factory():
-                            await process_event_from_queue(data, redis, session)
-                            break
+                if not stream_messages:
+                    continue
 
-                        # Acknowledge message
-                        await redis.xack(settings.redis_stream_name, consumer_group, message_id)
+                # Process messages concurrently
+                tasks = [
+                    process_single_event(
+                        message_id,
+                        data,
+                        redis,
+                        session_factory,
+                        consumer_group,
+                        stream_name.decode() if isinstance(stream_name, bytes) else stream_name,
+                    )
+                    for message_id, data in stream_messages
+                ]
 
-                    except Exception as e:
-                        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                # Wait for all concurrent tasks to complete
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
             logger.error(f"Stream consumer error: {e}", exc_info=True)
             await asyncio.sleep(5)
 
 
+async def process_webhook_delivery(
+    delivery_data: dict[str, bytes],
+    redis: Redis,
+    session: AsyncSession,
+) -> None:
+    """Process webhook delivery from queue (can take up to 30s - non-blocking)."""
+    try:
+        event_id = UUID(delivery_data[b"event_id"].decode())
+        delivery_id = UUID(delivery_data[b"delivery_id"].decode())
+
+        # Fetch event and delivery
+        event_query = select(Event).where(Event.id == event_id)
+        event = (await session.exec(event_query)).first()
+
+        delivery_query = select(EventDelivery).where(EventDelivery.id == delivery_id)
+        delivery = (await session.exec(delivery_query)).first()
+
+        if not event or not delivery:
+            logger.error(f"Event {event_id} or delivery {delivery_id} not found")
+            return
+
+        # Check if already delivered
+        if delivery.status == DeliveryStatus.DELIVERED:
+            logger.info(f"Event {event_id} already delivered")
+            return
+
+        # Fetch organization
+        org_query = select(Organization).where(Organization.id == event.org_id)
+        org = (await session.exec(org_query)).first()
+
+        if not org:
+            logger.error(f"Organization {event.org_id} not found")
+            return
+
+        if not org.webhook_url:
+            logger.warning(f"No webhook URL for org {org.id}, skipping delivery")
+            return
+
+        # Deliver webhook (can take up to 30s - but doesn't block event processing)
+        await deliver_event(event, delivery, org, session)
+
+    except Exception as e:
+        logger.error(f"Error processing webhook delivery: {e}", exc_info=True)
+
+
+async def consume_webhook_deliveries(redis: Redis, session_factory: Callable[[], Any]) -> None:
+    """Consume webhook deliveries from separate stream.
+
+    This runs independently from event processing to prevent blocking.
+    Webhook delivery can take up to 30s with timeouts.
+    """
+    consumer_group = "webhook-delivery-processors"
+    consumer_name = f"webhook-processor-{os.getpid()}"
+
+    # Create consumer group if not exists
+    try:
+        await redis.xgroup_create(
+            WEBHOOK_DELIVERY_STREAM, consumer_group, id="0", mkstream=True
+        )
+    except Exception:
+        pass  # Group already exists
+
+    logger.info(f"Webhook delivery processor started (PID: {os.getpid()})")
+    logger.info("Processing webhook deliveries (can take up to 30s each)")
+
+    while True:
+        try:
+            # Read from webhook delivery stream
+            messages = await redis.xreadgroup(
+                groupname=consumer_group,
+                consumername=consumer_name,
+                streams={WEBHOOK_DELIVERY_STREAM: ">"},
+                count=5,  # Process fewer at a time (webhooks are slow)
+                block=5000,
+            )
+
+            for stream_name, stream_messages in messages:
+                for message_id, data in stream_messages:
+                    try:
+                        # Process webhook delivery
+                        async for session in session_factory():
+                            await process_webhook_delivery(data, redis, session)
+                            break
+
+                        # Acknowledge message
+                        await redis.xack(WEBHOOK_DELIVERY_STREAM, consumer_group, message_id)
+
+                    except Exception as e:
+                        logger.error(f"Error processing webhook delivery {message_id}: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"Webhook delivery consumer error: {e}", exc_info=True)
+            await asyncio.sleep(5)
+
+
 async def main() -> None:
-    """Main worker entry point."""
+    """Main worker entry point - runs both event and webhook processors."""
     logging.basicConfig(level=logging.INFO)
 
     from zapier_triggers_api.redis_client import redis
 
     try:
-        await consume_stream(redis, get_session)
+        # Run both consumers concurrently
+        await asyncio.gather(
+            consume_stream(redis, get_session),
+            consume_webhook_deliveries(redis, get_session),
+        )
 
     finally:
         await redis.aclose()
