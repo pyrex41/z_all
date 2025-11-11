@@ -42,12 +42,7 @@ config :zapier_triggers, Oban,
   repo: ZapierTriggers.Repo,
   plugins: [
     # Prune completed jobs after 7 days
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-    # Run deduplication cleanup daily at 2 AM
-    {Oban.Plugins.Cron,
-     crontab: [
-       {"0 2 * * *", ZapierTriggers.Workers.DeduplicationCleanup}
-     ]}
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],
   queues: [delivery: 50]
 

@@ -54,6 +54,9 @@ defmodule ZapierTriggers.MixProject do
       # Job queue (Postgres-backed)
       {:oban, "~> 2.18"},
 
+      # Broadway for async event processing
+      {:broadway, "~> 1.0"},
+
       # HTTP client for webhook delivery
       {:httpoison, "~> 2.2"},
 
