@@ -19,7 +19,11 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
-const API_KEY = __ENV.API_KEY || 'test_api_key';
+const API_KEY = __ENV.API_KEY;
+
+if (!API_KEY) {
+  throw new Error('API_KEY environment variable is required. Usage: k6 run load_test.js --env API_KEY=your_key');
+}
 
 export default function () {
   const payload = JSON.stringify({

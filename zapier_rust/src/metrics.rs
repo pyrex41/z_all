@@ -70,6 +70,11 @@ pub fn record_validation_error(error_type: &str) {
     metrics::counter!("validation_errors_total", 1, "type" => error_type.to_string());
 }
 
+/// Record event processing failures
+pub fn record_event_processing_failure(error_type: &str) {
+    metrics::counter!("events_failed_total", 1, "error" => error_type.to_string());
+}
+
 /// Initialize Prometheus metrics exporter
 pub fn init_metrics_exporter() {
     let builder = metrics_exporter_prometheus::PrometheusBuilder::new();

@@ -91,7 +91,7 @@ pub async fn create_event(
     };
 
     state.event_processor.queue_event(event_to_process).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to queue event: {}", e)))?;
+        .map_err(|_| ApiError::SystemCapacityExceeded)?;
 
     ingestion_tracker.record();
 
