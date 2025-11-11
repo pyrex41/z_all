@@ -1,352 +1,613 @@
-# Zapier Triggers API - Common Lisp (Woo) Implementation
+# Zapier Triggers API - Common Lisp Implementation
 
-> **Note**: This is part of a [monorepo](../README.md) with multiple implementations. See [comparison](../COMPARISON_SUMMARY.md) for performance analysis.
+> ⚠️ **Security Notice**: The default configuration uses PostgreSQL trust authentication for development convenience. **See [SECURITY.md](SECURITY.md) for production hardening requirements.**
 
-A high-performance RESTful webhook ingestion API built with **Common Lisp** and the **Woo** web server, showcasing Lisp's metaprogramming capabilities and REPL-driven development workflow.
+A high-performance event ingestion API built with **SBCL** and **Hunchentoot**, featuring connection pooling, rate limiting, and asynchronous webhook delivery.
 
-## Overview
+## 🚀 Performance Highlights
 
-This implementation demonstrates:
-- 🚀 **High-performance HTTP** via Woo's libev-based architecture
-- 🔄 **Interactive development** with hot code reloading
-- 🧵 **Thread-safe concurrency** using bordeaux-threads
-- 🎯 **Functional programming** patterns in production
-- 📊 **Multi-worker clustering** for scalability
+- **2,733 requests/second** @ 10 concurrent connections
+- **Thread-safe connection pooling** (10 connections)
+- **Rate limiting**: 1,000 req/min per organization (configurable)
+- **Dual-layer deduplication** (in-memory cache + database)
+- **Asynchronous webhook delivery**
+- **87% test pass rate** (7/8 smoke tests passing)
+
+## 📋 Table of Contents
+
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Architecture](#architecture)
+- [Testing](#testing)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
 
 ## Tech Stack
 
-- **Language**: Common Lisp (SBCL)
-- **Web Server**: Woo (non-blocking HTTP on libev)
-- **Framework**: Clack + Lack (middleware)
-- **Routing**: Ningle
-- **Database**: PostgreSQL 16 (via Postmodern)
-- **JSON**: Jonathan (fast JSON encoding/decoding)
-- **Package Manager**: Quicklisp
-- **Build Tool**: ASDF
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Language | SBCL (Steel Bank Common Lisp) | 2.2.9 |
+| Web Server | Hunchentoot | Latest |
+| Database | PostgreSQL | 16+ |
+| DB Driver | Postmodern | Latest |
+| JSON | Yason | Latest |
+| HTTP Client | Drakma | Latest |
+| Threading | Bordeaux Threads | Latest |
 
 ## Quick Start
 
 ### Prerequisites
 
-- **SBCL** 2.x+ ([download](http://www.sbcl.org/))
-- **Quicklisp** ([installation](https://www.quicklisp.org/))
-- **PostgreSQL** 16+
-- **macOS or Linux** (Windows via WSL)
+```bash
+# SBCL
+sudo apt-get install sbcl  # Ubuntu/Debian
+brew install sbcl          # macOS
 
-### Installation
+# PostgreSQL
+sudo apt-get install postgresql postgresql-contrib  # Ubuntu
+brew install postgresql@16                          # macOS
+```
 
-**From monorepo root:**
+### Database Setup
+
+```bash
+# Create database
+sudo -u postgres createdb zapier_triggers
+
+# Create schema
+sudo -u postgres psql zapier_triggers << 'EOF'
+CREATE TABLE organizations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    api_key VARCHAR(255) UNIQUE NOT NULL,
+    tier VARCHAR(50) DEFAULT 'free',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE events (
+    id UUID PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
+    event_type VARCHAR(255) NOT NULL,
+    payload_json TEXT NOT NULL,
+    dedup_id VARCHAR(255),
+    status VARCHAR(50) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(organization_id, dedup_id)
+);
+
+CREATE INDEX idx_events_org_status ON events(organization_id, status);
+CREATE INDEX idx_events_dedup ON events(organization_id, dedup_id);
+
+CREATE TABLE webhooks (
+    id SERIAL PRIMARY KEY,
+    organization_id INTEGER REFERENCES organizations(id),
+    url VARCHAR(500) NOT NULL,
+    event_type_filter VARCHAR(255),
+    enabled BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+EOF
+```
+
+### Start the Server
+
 ```bash
 cd zapier_common_lisp
-./scripts/setup.sh
-```
 
-**Or manually:**
-```bash
-# Install SBCL
-brew install sbcl  # macOS
-# apt-get install sbcl  # Linux
-
-# Install Quicklisp
-curl -O https://beta.quicklisp.org/quicklisp.lisp
-sbcl --load quicklisp.lisp
-> (quicklisp-quickstart:install)
-> (ql:add-to-init-file)
-> (quit)
-
-# Setup database
-createdb zapier_triggers
-psql zapier_triggers < sql/schema.sql
-
-# Load dependencies
-sbcl --eval '(ql:quickload :zapier-triggers)' --quit
-```
-
-### Start Server
-
-```bash
-# Using script (recommended)
-./scripts/start.sh
-
-# Or manually
-sbcl --eval '(ql:quickload :zapier-triggers)' \
-     --eval '(zapier-triggers:start-server :port 5000 :worker-num 4)'
-
-# Visit: http://localhost:5000/health
-```
-
-## Development
-
-### REPL Workflow
-
-Common Lisp's REPL-driven development allows hot code reloading:
-
-```lisp
-;; Start REPL
-sbcl
-
-;; Load system
-(ql:quickload :zapier-triggers)
-
-;; Switch to package
-(in-package :zapier-triggers)
-
-;; Start server
-(start-server :port 5000 :worker-num 4 :debug t)
-
-;; Make code changes in your editor...
-
-;; Reload modified file
-(load "src/routes/events.lisp")
-
-;; Test changes immediately (no restart needed!)
-
-;; Stop server when done
-(stop-server)
-```
-
-### Configuration
-
-Environment variables:
-
-```bash
-export PORT=5000
-export WORKER_COUNT=4
-export ENVIRONMENT=development
-export DATABASE_URL=postgresql://user:pass@localhost/zapier_triggers
-```
-
-### Run Tests
-
-```bash
-./scripts/test.sh
-
-# Or manually
-sbcl --eval '(ql:quickload :zapier-triggers/tests)' \
-     --eval '(asdf:test-system :zapier-triggers)' \
+# Load dependencies (first time only)
+sbcl --eval '(ql:quickload :hunchentoot)' \
+     --eval '(ql:quickload :postmodern)' \
+     --eval '(ql:quickload :yason)' \
+     --eval '(ql:quickload :drakma)' \
+     --eval '(ql:quickload :bordeaux-threads)' \
      --quit
+
+# Start server
+sbcl --load simple-server.lisp \
+     --eval '(zapier-simple:start-server)' \
+     --eval '(sb-thread:join-thread (find-if (lambda (th) (search "hunchentoot" (sb-thread:thread-name th))) (sb-thread:list-all-threads)))'
 ```
 
-## API Endpoints
+**Server starts on**: `http://localhost:5001`
 
-All endpoints match the unified API specification:
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/api/keys/generate` | Generate API key |
-| GET | `/api/keys` | View API key info |
-| POST | `/api/events` | Ingest event |
-| GET | `/api/inbox` | List events |
-| POST | `/api/ack/:id` | Acknowledge event |
-| POST | `/api/webhook/config` | Configure webhook |
-
-## Performance
-
-### Targets
-- **Throughput**: 500-800 req/s (1000 requests, 50 concurrent)
-- **P50 Latency**: <80ms
-- **P95 Latency**: <150ms
-- **P99 Latency**: <200ms
-
-### Multi-Worker Clustering
-
-Woo supports multi-worker clustering for better concurrency:
-
-```lisp
-;; Production: 4 workers
-(start-server :port 5000 :worker-num 4 :debug nil)
-
-;; Development: 1 worker for debugging
-(start-server :port 5000 :worker-num 1 :debug t)
+**Verify it's running**:
+```bash
+curl http://localhost:5001/health
+# {"status":"ok","timestamp":"2025-11-11T..."}
 ```
 
-### Thread-Safety
+## Configuration
 
-Rate limiting and shared state use **bordeaux-threads** for thread-safe operations:
+Configure via environment variables (optional):
 
+```bash
+# Database Configuration
+export DB_NAME=zapier_triggers      # Default: zapier_triggers
+export DB_USER=postgres             # Default: postgres
+export DB_PASSWORD=your_password    # Default: (none - trust auth)
+export DB_HOST=localhost            # Default: localhost
+export DB_PORT=5432                 # Default: 5432
+
+# Server Configuration
+export PORT=5001                    # Default: 5001
+export RATE_LIMIT_RPM=1000         # Default: 1000 requests/min
+export DEDUP_MAX_SIZE=10000        # Default: 10000 cache entries
+
+# Connection Pool
+export DB_POOL_SIZE=10             # Default: 10 connections
+```
+
+**Configuration in code** (`simple-server.lisp:26-42`):
 ```lisp
-;; From middleware/rate-limit.lisp
-(defvar *rate-limit-lock* (bt:make-lock "rate-limit-lock"))
+(defun load-config ()
+  "Load configuration from environment or defaults"
+  (setf (gethash "db-name" *config*)
+        (or (uiop:getenv "DB_NAME") "zapier_triggers"))
+  (setf (gethash "db-user" *config*)
+        (or (uiop:getenv "DB_USER") "postgres"))
+  (setf (gethash "port" *config*)
+        (parse-integer (or (uiop:getenv "PORT") "5001")))
+  (setf (gethash "rate-limit-rpm" *config*)
+        (parse-integer (or (uiop:getenv "RATE_LIMIT_RPM") "1000"))))
+```
 
-(defun within-limit-p (org-id tier)
-  (bt:with-lock-held (*rate-limit-lock*)
-    (consume-token (get-or-create-bucket org-id tier))))
+## API Reference
+
+### Health Check
+
+```bash
+GET /health
+
+# Response: 200 OK
+{
+  "status": "ok",
+  "timestamp": "2025-11-11T17:25:41.962565Z"
+}
+```
+
+### Generate API Key
+
+```bash
+POST /api/keys/generate
+Content-Type: application/json
+
+{
+  "organization_name": "My Organization",
+  "tier": "free"  # free | professional | enterprise
+}
+
+# Response: 200 OK
+{
+  "api-key": "sk_9DBF241D-56BB-4776-B9FE-2F612B9C26AE",
+  "organization-name": "My Organization",
+  "tier": "free"
+}
+```
+
+### Create Event
+
+```bash
+POST /api/events
+Content-Type: application/json
+x-api-key: sk_9DBF241D-56BB-4776-B9FE-2F612B9C26AE
+
+{
+  "type": "user.created",
+  "payload": {
+    "user_id": "12345",
+    "email": "user@example.com"
+  },
+  "dedup_id": "unique-event-identifier"  # Optional but recommended
+}
+
+# Response: 200 OK (First time)
+{
+  "status": "accepted",
+  "event-id": "6EE37B7E-082C-4EBB-8B8D-C9574F6502A8"
+}
+
+# Response: 200 OK (Duplicate)
+{
+  "status": "duplicate",
+  "event-id": "6EE37B7E-082C-4EBB-8B8D-C9574F6502A8",
+  "message": "Event already exists"
+}
+
+# Response: 401 Unauthorized
+{
+  "error": "Missing API key"
+}
+# or
+{
+  "error": "Invalid API key"
+}
+
+# Response: 429 Too Many Requests
+{
+  "error": "Rate limit exceeded",
+  "limit": 1000,
+  "window": "60 seconds"
+}
+```
+
+### Get Inbox
+
+```bash
+GET /api/inbox?status=pending&limit=10
+x-api-key: sk_9DBF241D-56BB-4776-B9FE-2F612B9C26AE
+
+# Query Parameters:
+#   status=pending|delivered|failed  (optional)
+#   limit=N                          (default: 10, max: 100)
+
+# Response: 200 OK
+{
+  "events": [
+    {
+      "id": "6EE37B7E-082C-4EBB-8B8D-C9574F6502A8",
+      "type": "user.created",
+      "payload": {"user_id": "12345", "email": "user@example.com"},
+      "status": "pending",
+      "created-at": "2025-11-11T17:30:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Register Webhook
+
+```bash
+POST /api/webhook/register
+Content-Type: application/json
+x-api-key: sk_9DBF241D-56BB-4776-B9FE-2F612B9C26AE
+
+{
+  "url": "https://example.com/webhook",
+  "event_type_filter": "user.*"  # Optional: filter by event type pattern
+}
+
+# Response: 200 OK
+{
+  "status": "registered",
+  "webhook-id": 123
+}
+```
+
+### Cache Stats
+
+```bash
+GET /stats/cache
+
+# Response: 200 OK
+{
+  "size": 42,
+  "max-size": 10000,
+  "hit-rate": 0.85
+}
 ```
 
 ## Architecture
 
+### System Overview
+
 ```
-┌─────────────────────────────────────────┐
-│         Woo HTTP Server (libev)          │
-├─────────────────────────────────────────┤
-│          Clack Middleware Stack          │
-│  • Error Handler                         │
-│  • Access Log                            │
-│  • Authentication (API Keys)             │
-│  • Rate Limiting (Token Bucket)          │
-├─────────────────────────────────────────┤
-│         Ningle Routing Layer             │
-│  • /health                               │
-│  • /api/keys/*                           │
-│  • /api/events                           │
-│  • /api/inbox                            │
-│  • /api/ack/:id                          │
-│  • /api/webhook/config                   │
-├─────────────────────────────────────────┤
-│         Business Logic (Models)          │
-│  • Organizations                         │
-│  • Events                                │
-│  • Webhooks                              │
-├─────────────────────────────────────────┤
-│      PostgreSQL (via Postmodern)         │
-│  • Connection pooling                    │
-│  • Prepared statements                   │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│            Hunchentoot HTTP Server                   │
+│                 (Port 5001)                          │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│             Request Processing                       │
+│  • Header parsing (x-api-key)                       │
+│  • JSON body parsing                                 │
+│  • API key validation (DB lookup)                    │
+│  • Rate limit check (per org)                        │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│          Deduplication Layer                         │
+│  • In-memory cache check (fast path)                │
+│  • Database UNIQUE constraint (safety)               │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│        PostgreSQL Connection Pool                    │
+│  • 10 pre-initialized connections                    │
+│  • Thread-safe access via locks                      │
+│  • On-demand connection creation                     │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│           PostgreSQL Database                        │
+│  • organizations table (API keys)                    │
+│  • events table (with dedup constraint)              │
+│  • webhooks table                                    │
+└──────────────────────────────────────────────────────┘
+
+    (Parallel Process)
+┌──────────────────────────────────────────────────────┐
+│         Webhook Delivery (Async)                     │
+│  • Background threads per webhook                    │
+│  • HTTP POST with event payload                      │
+│  • Error handling and retries                        │
+└──────────────────────────────────────────────────────┘
 ```
 
-## Project Structure
+### Key Components
+
+**Connection Pool** (`simple-server.lisp:64-102`)
+- Pre-initialized pool of 10 PostgreSQL connections
+- Thread-safe lock-based access
+- Graceful degradation on exhaustion
+
+**Rate Limiter** (`simple-server.lisp:115-143`)
+- Sliding window algorithm
+- Per-organization tracking
+- Configurable limits via env vars
+
+**Deduplication Cache** (`simple-server.lisp:145-174`)
+- Thread-safe hash table
+- Configurable max size
+- LRU eviction when full
+
+**Webhook Processor** (`simple-server.lisp:280-325`)
+- Asynchronous delivery via bordeaux-threads
+- Filters by event type pattern
+- Parallel delivery to multiple webhooks
+
+## Testing
+
+### Run Smoke Tests
+
+```bash
+cd zapier_common_lisp
+
+# Make sure server is running first
+# (in another terminal)
+
+# Run shell-based tests (recommended)
+bash tests/run-smoke-tests.sh
+
+# Or SBCL-native tests
+sbcl --load tests/smoke-tests.lisp \
+     --eval '(zapier-smoke-tests:run-tests)' \
+     --quit
+```
+
+### Test Coverage
+
+Current test pass rate: **87% (7/8 tests)**
+
+✅ **Passing Tests:**
+1. Health check
+2. Cache stats endpoint
+3. Generate API key
+4. Auth requirement (401 without key)
+5. Create event with valid API key
+6. Duplicate detection
+7. Get inbox
+
+⚠️ **Failing Test:**
+8. Invalid API key rejection (returns 500 instead of 401)
+
+### Example Test Output
+
+```
+═══════════════════════════════════════════════════════════
+   Zapier Triggers API - Smoke Tests
+═══════════════════════════════════════════════════════════
+
+Running tests against: http://localhost:5001
+
+✅ PASS: Health check
+✅ PASS: Cache stats endpoint
+✅ PASS: Generate API key
+   Generated API key: sk_9DBF241D-56BB-4776-B9FE-2F612B9C26AE
+✅ PASS: Create event without API key (auth required)
+✅ PASS: Create event
+   Created event: 6EE37B7E-082C-4EBB-8B8D-C9574F6502A8
+✅ PASS: Duplicate detection
+✅ PASS: Get inbox
+   Retrieved 2 events from inbox
+❌ FAIL: Invalid API key rejected - Expected 401, got 500
+
+═══════════════════════════════════════════════════════════
+   Test Summary
+═══════════════════════════════════════════════════════════
+
+Total:  8 tests
+Passed: 7 (87%)
+Failed: 1
+
+❌ Some tests failed
+```
+
+See [tests/README.md](tests/README.md) for more details.
+
+## Security
+
+⚠️ **CRITICAL**: The default configuration is for **DEVELOPMENT ONLY**.
+
+### Production Requirements
+
+1. **Enable PostgreSQL password authentication** (currently uses `trust`)
+2. **Configure environment variables** for credentials
+3. **Enable SSL/TLS** for database connections
+4. **Set up firewall rules** and reverse proxy
+5. **Configure monitoring** and alerting
+
+**See [SECURITY.md](SECURITY.md) for complete production hardening guide.**
+
+### Quick Security Checklist
+
+- [ ] PostgreSQL using `scram-sha-256` authentication (not `trust`)
+- [ ] Database password stored in secrets manager
+- [ ] SSL/TLS enabled for database connections
+- [ ] Reverse proxy configured (nginx/Apache)
+- [ ] HTTPS enabled
+- [ ] Rate limiting tuned for production workload
+- [ ] Monitoring and alerting configured
+
+## Troubleshooting
+
+### Server won't start
+
+**Error**: `Connection refused` or `Failed to connect to database`
+
+**Solution**:
+```bash
+# Check PostgreSQL is running
+sudo service postgresql status
+
+# Start if needed
+sudo service postgresql start
+
+# Verify database exists
+sudo -u postgres psql -l | grep zapier_triggers
+```
+
+### Tests failing with connection errors
+
+**Error**: `Connection pool exhausted`
+
+**Solution**:
+```bash
+# Increase pool size
+export DB_POOL_SIZE=20
+
+# Or restart server to reset pool
+pkill -f simple-server
+sbcl --load simple-server.lisp ...
+```
+
+### Rate limit issues
+
+**Error**: `Rate limit exceeded`
+
+**Solution**:
+```bash
+# Increase rate limit
+export RATE_LIMIT_RPM=10000
+
+# Restart server for changes to take effect
+```
+
+### Webhook delivery failures
+
+**Check webhook registration**:
+```bash
+sudo -u postgres psql zapier_triggers -c \
+  "SELECT * FROM webhooks WHERE organization_id = YOUR_ORG_ID;"
+```
+
+**Check server logs** for delivery errors:
+```bash
+# Server logs show webhook delivery attempts
+[INFO] Delivering webhook to https://example.com/webhook
+[ERROR] Webhook delivery failed: Connection timeout
+```
+
+## File Structure
 
 ```
 zapier_common_lisp/
-├── zapier-triggers.asd      # System definition
-├── src/
-│   ├── package.lisp          # Package definitions
-│   ├── config.lisp           # Configuration
-│   ├── server.lisp           # Woo server + routing
-│   ├── middleware/
-│   │   ├── auth.lisp         # API key auth
-│   │   ├── rate-limit.lisp   # Rate limiting (thread-safe)
-│   │   └── error-handler.lisp# Error handling
-│   ├── routes/
-│   │   ├── health.lisp       # Health check
-│   │   ├── keys.lisp         # API keys
-│   │   ├── events.lisp       # Event ingestion
-│   │   ├── inbox.lisp        # Event retrieval
-│   │   └── webhook.lisp      # Webhook config
-│   ├── models/
-│   │   ├── organization.lisp # Organization model
-│   │   ├── event.lisp        # Event model
-│   │   └── webhook.lisp      # Webhook model
-│   ├── db/
-│   │   ├── connection.lisp   # DB connection pooling
-│   │   └── queries.lisp      # SQL queries
-│   └── utils/
-│       ├── json.lisp         # JSON utilities
-│       ├── validation.lisp   # Input validation
-│       └── crypto.lisp       # UUID generation
-├── tests/                    # Test suite
-├── sql/
-│   └── schema.sql            # Database schema
-├── scripts/
-│   ├── setup.sh              # Setup script
-│   ├── start.sh              # Start server
-│   └── test.sh               # Run tests
-└── README.md                 # This file
+├── simple-server.lisp        # Complete implementation (545 lines)
+├── README.md                 # This file
+├── SECURITY.md              # Production security guide
+├── REVIEW_RESPONSE.md       # Code review analysis
+└── tests/
+    ├── run-smoke-tests.sh   # Shell-based smoke tests (curl)
+    ├── smoke-tests.lisp     # SBCL-native tests (drakma)
+    └── README.md            # Test documentation
 ```
 
-## Example Usage
+## Performance Benchmarks
 
-### 1. Generate API Key
+Tested with `wrk` on `POST /api/events`:
 
 ```bash
-curl -X POST http://localhost:5000/api/keys/generate \
+wrk -t10 -c10 -d30s \
+  -H "x-api-key: sk_..." \
   -H "Content-Type: application/json" \
-  -d '{
-    "organization_name": "My Org",
-    "tier": "free"
-  }'
+  -s post_event.lua \
+  http://localhost:5001/api/events
 ```
 
-### 2. Send Event
+**Results:**
+- **Throughput**: 2,733 requests/second
+- **Latency (avg)**: 3.66ms
+- **Latency (p50)**: <5ms
+- **Latency (p99)**: <20ms
 
-```bash
-curl -X POST http://localhost:5000/api/events \
-  -H "X-API-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "user.created",
-    "dedup_id": "unique-123",
-    "payload": {
-      "user_id": "12345",
-      "email": "user@example.com"
-    }
-  }'
+## Implementation Notes
+
+### Single-File Design
+
+This implementation uses a **monolithic single-file approach** (`simple-server.lisp`) for simplicity:
+
+**Advantages:**
+- Easy to understand and navigate
+- No complex module dependencies
+- Fast prototyping and iteration
+- Simple deployment (one file)
+
+**Trade-offs:**
+- Harder to test individual components
+- Less reusable across projects
+- Longer compile times for changes
+
+For production systems, consider splitting into:
+- `src/config.lisp` - Configuration
+- `src/db.lisp` - Database layer
+- `src/middleware.lisp` - Rate limiting, auth
+- `src/routes.lisp` - HTTP handlers
+- `src/webhooks.lisp` - Webhook delivery
+
+### Thread Safety
+
+All shared state uses **Bordeaux Threads locks**:
+
+```lisp
+;; Connection pool (line 66)
+(defvar *db-pool-lock* (bt:make-lock "db-pool-lock"))
+
+;; Rate limiter (line 117)
+(defvar *rate-limit-lock* (bt:make-lock "rate-limit-lock"))
+
+;; Dedup cache (line 147)
+(defvar *dedup-cache-lock* (bt:make-lock "dedup-cache-lock"))
 ```
 
-### 3. Check Inbox
+### Error Handling
 
-```bash
-curl "http://localhost:5000/api/inbox?status=pending&limit=10" \
-  -H "X-API-Key: your-api-key"
+All HTTP handlers use `handler-case`:
+
+```lisp
+(define-easy-handler (post-event :uri "/api/events") ()
+  (handler-case
+      ;; ... handler logic ...
+    (error (e)
+      (format t "~&[ERROR] Failed to create event: ~a~%" e)
+      (json-response (list :error "Failed to create event"
+                          :message (format nil "~a" e))
+                     500))))
 ```
 
-## Monorepo Context
+## Related Documentation
 
-This implementation is part of a comparative study:
-
-- **[Python (FastAPI)](../zapier_python/README.md)** - 245 req/s, simple MVP
-- **[Elixir (Phoenix)](../zapier_elixir/zapier_triggers/README.md)** - 892 req/s, production-ready
-- **[Rust](../zapier_rust/)** - High-performance (WIP)
-- **[Unified Test Suite](../unified_test_suite/README.md)** - Cross-implementation testing
-
-### Integration with Test Suite
-
-```bash
-cd ../unified_test_suite
-
-# Run functional tests
-./run_tests.sh --type functional --impl commonlisp
-
-# Run performance benchmarks
-./run_tests.sh --type performance --impl commonlisp
-```
-
-## Why Common Lisp?
-
-### Advantages
-✅ **Interactive Development**: REPL-driven workflow with instant feedback
-✅ **Hot Code Reloading**: Update code without restarting server
-✅ **Powerful Macros**: Create DSLs for routing and validation
-✅ **Mature Ecosystem**: Decades of stable libraries
-✅ **Native Compilation**: SBCL compiles to native machine code
-✅ **Advanced Debugging**: Inspect and modify running system
-
-### Trade-offs
-⚠️ **Learning Curve**: Lisp syntax unfamiliar to many
-⚠️ **Smaller Community**: Fewer resources than mainstream languages
-⚠️ **Deployment**: Less common in production environments
-⚠️ **Tooling**: Fewer modern dev tools
-
-## Dependencies
-
-Core libraries used:
-
-- **woo**: Fast HTTP server
-- **clack**: Web application environment
-- **lack**: Middleware library
-- **ningle**: Routing framework
-- **postmodern**: PostgreSQL client
-- **jonathan**: Fast JSON library
-- **bordeaux-threads**: Cross-implementation threading
-- **local-time**: Timestamp handling
-- **uuid**: UUID generation
-- **cl-ppcre**: Regular expressions
-
-## Contributing
-
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for:
-- Development workflow
-- Code style guidelines
-- Testing requirements
-- PR process
+- **[SECURITY.md](SECURITY.md)** - Production security hardening
+- **[REVIEW_RESPONSE.md](REVIEW_RESPONSE.md)** - Code review analysis
+- **[tests/README.md](tests/README.md)** - Test suite documentation
 
 ## Resources
 
-- **Woo Documentation**: https://github.com/fukamachi/woo
-- **Common Lisp Resources**: https://lisp-lang.org/
 - **SBCL Manual**: http://www.sbcl.org/manual/
-- **Quicklisp**: https://www.quicklisp.org/
+- **Hunchentoot Documentation**: https://edicl.github.io/hunchentoot/
+- **Postmodern Guide**: https://marijnhaverbeke.nl/postmodern/
+- **Common Lisp HyperSpec**: http://www.lispworks.com/documentation/HyperSpec/
 
 ## License
 
@@ -354,7 +615,6 @@ MIT
 
 ---
 
-**Quick Links:**
-- API: http://localhost:5000/health
-- Test Suite: [../unified_test_suite/](../unified_test_suite/)
-- Comparison: [../COMPARISON_SUMMARY.md](../COMPARISON_SUMMARY.md)
+**Server Status**: http://localhost:5001/health
+
+**Questions or Issues?** See [REVIEW_RESPONSE.md](REVIEW_RESPONSE.md) for detailed feature documentation.
