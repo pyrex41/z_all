@@ -82,7 +82,7 @@ async def create_event(
     await check_rate_limit(org, redis)
 
     # 2. Validate payload size (in-memory check - <1ms)
-    payload_size = len(json.dumps(event_data.data))
+    payload_size = len(json.dumps(event_data.payload))
     if payload_size > 256 * 1024:  # 256KB
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -119,7 +119,7 @@ async def create_event(
         event_id=str(event_id),
         org_id=str(org.id),
         event_type=event_data.type,
-        payload=event_data.data,
+        payload=event_data.payload,
         dedup_id=event_data.dedup_id,
         redis=redis,
     )

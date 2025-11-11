@@ -9,7 +9,7 @@ class EventCreate(BaseModel):
     """Event creation request."""
 
     type: str = Field(..., max_length=255, description="Event type identifier")
-    data: dict = Field(..., description="Event payload data")
+    payload: dict = Field(..., description="Event payload data")
     dedup_id: str | None = Field(None, max_length=255, description="Deduplication ID")
 
 
