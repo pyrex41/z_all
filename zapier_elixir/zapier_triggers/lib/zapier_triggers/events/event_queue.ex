@@ -11,6 +11,7 @@ defmodule ZapierTriggers.Events.EventQueue do
     field :dedup_id, :string
     field :status, :string, default: "pending"
     field :inserted_at, :utc_datetime_usec
+    field :processing_started_at, :utc_datetime_usec
 
     belongs_to :organization, ZapierTriggers.Organizations.Organization
   end
@@ -18,7 +19,7 @@ defmodule ZapierTriggers.Events.EventQueue do
   @doc false
   def changeset(queue_item, attrs) do
     queue_item
-    |> cast(attrs, [:id, :type, :payload, :dedup_id, :organization_id, :status, :inserted_at])
+    |> cast(attrs, [:id, :type, :payload, :dedup_id, :organization_id, :status, :inserted_at, :processing_started_at])
     |> validate_required([:id, :type, :payload, :organization_id, :inserted_at])
   end
 

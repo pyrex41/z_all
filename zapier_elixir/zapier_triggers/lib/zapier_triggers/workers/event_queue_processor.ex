@@ -109,9 +109,12 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
         )
         |> Repo.all()
         |> Enum.map(fn queue_item ->
-          # Mark as processing (not deleted yet!)
+          # Mark as processing and record when processing started (not deleted yet!)
           {:ok, updated_item} = queue_item
-            |> Ecto.Changeset.change(%{status: "processing"})
+            |> Ecto.Changeset.change(%{
+              status: "processing",
+              processing_started_at: DateTime.utc_now()
+            })
             |> Repo.update()
           updated_item
         end)
@@ -191,6 +194,32 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
   end
 
   defp process_single_event(queue_item) do
+    # IDEMPOTENCY CHECK: Handle case where DB crashed between phase 2 (insert event)
+    # and phase 3 (delete from queue). Event exists in both tables.
+    case Repo.get(Event, queue_item.id) do
+      %Event{} = existing_event ->
+        # Event already processed! Just return success.
+        # The queue item will be deleted in the success handler.
+        Logger.info("Event #{queue_item.id} already processed (idempotency), skipping reprocessing",
+          event_id: queue_item.id,
+          type: existing_event.type
+        )
+        {:ok, :already_processed}
+
+      nil ->
+        # Event not yet processed, continue with normal flow
+        process_new_event(queue_item)
+    end
+  rescue
+    e ->
+      Logger.error("Unexpected error in idempotency check for event #{queue_item.id}: #{inspect(e)}",
+        event_id: queue_item.id,
+        error: inspect(e)
+      )
+      {:error, :unexpected_error}
+  end
+
+  defp process_new_event(queue_item) do
     # Note: Cache-based deduplication check is removed in favor of DB constraint
     # This prevents race conditions where multiple events pass the cache check
     # but only one should be persisted. The DB unique constraint on dedup_id
@@ -292,14 +321,19 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
   Cleans up events stuck in "processing" status.
   These are events that were being processed when the worker crashed.
   Reverts them to "pending" so they can be retried.
+
+  Uses processing_started_at (not inserted_at) to accurately identify stuck items.
+  An event queued 10 minutes ago but started processing 1 minute ago is NOT stuck.
   """
   def cleanup_stuck_items do
     cutoff_time = DateTime.utc_now() |> DateTime.add(-@stuck_item_timeout, :millisecond)
 
     {count, _} = from(q in EventQueue,
-      where: q.status == "processing" and q.inserted_at < ^cutoff_time
+      where: q.status == "processing"
+        and not is_nil(q.processing_started_at)
+        and q.processing_started_at < ^cutoff_time
     )
-    |> Repo.update_all(set: [status: "pending"])
+    |> Repo.update_all(set: [status: "pending", processing_started_at: nil])
 
     if count > 0 do
       Logger.warning("Cleaned up #{count} stuck queue items, reverted to pending",
