@@ -25,18 +25,21 @@ defmodule ZapierTriggers.Workers.DeliveryWorker do
 
     # Skip if webhook delivery is disabled (for testing)
     if Application.get_env(:zapier_triggers, :disable_webhook_delivery, false) do
-      Logger.info("Webhook delivery disabled, skipping", event_id: event_id)
-      return :ok
-    end
-
+      Logger.info("Webhook delivery disabled, marking as skipped", event_id: event_id)
+      update_delivery(delivery, "skipped", nil, "Webhook delivery disabled for testing")
+      :ok
     # Skip if no webhook URL configured
-    unless organization.webhook_url do
+    elsif !organization.webhook_url do
       Logger.warning("No webhook URL configured for organization #{organization.id}, marking as failed")
       update_delivery(delivery, "failed", nil, "No webhook URL configured")
-      return :ok
+      :ok
+    else
+      # Attempt delivery
+      perform_delivery(event, delivery, organization, event_id, attempt)
     end
+  end
 
-    # Attempt delivery
+  defp perform_delivery(event, delivery, organization, event_id, attempt) do
     case deliver_webhook(event, organization) do
       {:ok, status_code} when status_code in 200..299 ->
         Logger.info("Event #{event_id} delivered successfully",
