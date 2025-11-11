@@ -31,8 +31,9 @@ defmodule ZapierTriggers.Repo.Migrations.CreateCoreTables do
     # Composite index on organization_id and inserted_at for efficient queries
     create index(:events, [:organization_id, :inserted_at])
 
-    # Unique index on dedup_id for 24-hour deduplication window
-    create unique_index(:events, [:dedup_id], where: "dedup_id IS NOT NULL")
+    # Unique composite index on (organization_id, dedup_id) for per-organization deduplication
+    # This ensures dedup_id is unique within each organization, not globally
+    create unique_index(:events, [:organization_id, :dedup_id], where: "dedup_id IS NOT NULL")
 
     # GIN index on payload for JSONB queries
     create index(:events, [:payload], using: :gin)

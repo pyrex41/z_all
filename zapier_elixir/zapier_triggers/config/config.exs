@@ -42,12 +42,7 @@ config :zapier_triggers, Oban,
   repo: ZapierTriggers.Repo,
   plugins: [
     # Prune completed jobs after 7 days
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-    # Run deduplication cleanup daily at 2 AM
-    {Oban.Plugins.Cron,
-     crontab: [
-       {"0 2 * * *", ZapierTriggers.Workers.DeduplicationCleanup}
-     ]}
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],
   queues: [delivery: 50]
 
@@ -55,6 +50,16 @@ config :zapier_triggers, Oban,
 # Can be overridden via DISABLE_WEBHOOK_DELIVERY=true environment variable
 disable_webhook_delivery = System.get_env("DISABLE_WEBHOOK_DELIVERY") == "true"
 config :zapier_triggers, :disable_webhook_delivery, disable_webhook_delivery
+
+# Configure EventQueueProcessor for async event ingestion
+# These values can be tuned based on production load characteristics
+config :zapier_triggers, ZapierTriggers.Workers.EventQueueProcessor,
+  min_poll_interval: 100,       # Minimum poll interval in ms (when queue is active)
+  max_poll_interval: 2_000,     # Maximum poll interval in ms (when queue is idle)
+  batch_size: 100,              # Number of events to process per batch
+  max_concurrency: 20,          # Maximum concurrent processing tasks
+  max_queue_depth: 1_000,       # Alert threshold for queue depth
+  stuck_item_timeout: 300_000   # Timeout for stuck "processing" items (5 minutes)
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
