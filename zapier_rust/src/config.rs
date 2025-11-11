@@ -15,12 +15,14 @@ pub struct Config {
     pub api_key_salt: String,
 
     #[serde(default = "default_webhook_secret")]
+    #[allow(dead_code)] // Will be used for webhook signature verification
     pub webhook_secret: String,
 
     #[serde(default = "default_max_connections")]
     pub max_db_connections: u32,
 
     #[serde(default = "default_worker_count")]
+    #[allow(dead_code)] // Will be used when delivery system is implemented
     pub delivery_worker_count: usize,
 
     #[serde(default = "default_disable_webhook_delivery")]

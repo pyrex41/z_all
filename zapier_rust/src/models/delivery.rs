@@ -4,6 +4,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[allow(dead_code)] // Will be used when webhook delivery system is implemented
 pub struct EventDelivery {
     pub id: Uuid,
     pub event_id: Uuid,

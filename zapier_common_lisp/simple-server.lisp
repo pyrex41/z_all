@@ -263,9 +263,9 @@
   "Get active webhooks for organization"
   (with-pooled-connection (conn)
     (pomo:query
-     "SELECT id, url, event_types, enabled
+     "SELECT id, url
       FROM webhooks
-      WHERE organization_id = $1 AND enabled = true"
+      WHERE organization_id = $1"
      org-id
      :rows)))
 
@@ -309,18 +309,16 @@
      (handler-case
          (let ((webhooks (db-get-webhooks org-id)))
            (loop for webhook in webhooks
-                 do (destructuring-bind (webhook-id url event-types enabled) webhook
-                      (when (or (null event-types)
-                               (member event-type (cl-ppcre:split "," event-types) :test #'string=))
-                        (let ((event-data (make-hash-table :test 'equal)))
-                          (setf (gethash "event_id" event-data) event-id)
-                          (setf (gethash "event_type" event-data) event-type)
-                          (setf (gethash "payload" event-data) payload)
-                          (setf (gethash "timestamp" event-data)
-                                (local-time:format-timestring nil (local-time:now)))
-                          (let ((success (deliver-webhook url event-data)))
-                            (when success
-                              (db-update-event-status event-id "delivered"))))))))
+                 do (destructuring-bind (webhook-id url) webhook
+                      (let ((event-data (make-hash-table :test 'equal)))
+                        (setf (gethash "event_id" event-data) event-id)
+                        (setf (gethash "event_type" event-data) event-type)
+                        (setf (gethash "payload" event-data) payload)
+                        (setf (gethash "timestamp" event-data)
+                              (local-time:format-timestring nil (local-time:now)))
+                        (let ((success (deliver-webhook url event-data)))
+                          (when success
+                            (db-update-event-status event-id "delivered")))))))
        (error (e)
          (format t "~&[WEBHOOK] Error processing webhooks: ~a~%" e))))
    :name (format nil "webhook-~a" event-id)))

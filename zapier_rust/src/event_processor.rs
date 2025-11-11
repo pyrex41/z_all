@@ -12,11 +12,13 @@ pub struct EventToProcess {
     pub event_type: String,
     pub dedup_id: Option<String>,
     pub payload: serde_json::Value,
+    #[allow(dead_code)] // Will be used when webhook delivery system is implemented
     pub webhook_url: String,
 }
 
 /// Result of event processing
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used for async event processing responses
 pub struct ProcessingResult {
     pub event_id: Uuid,
     pub success: bool,
@@ -102,6 +104,7 @@ impl EventProcessor {
     }
 
     /// Get current used queue size
+    #[allow(dead_code)] // Will be used for monitoring and health checks
     pub fn queue_size(&self) -> usize {
         self.max_capacity - self.sender.capacity()
     }

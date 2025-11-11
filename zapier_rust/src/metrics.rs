@@ -39,6 +39,7 @@ pub fn track_rate_limit_check() -> MetricsTracker {
 }
 
 /// Record rate limit rejections
+#[allow(dead_code)] // Will be used when rate limiting is fully implemented
 pub fn record_rate_limit_exceeded() {
     metrics::counter!("rate_limit_exceeded_total", 1);
 }
@@ -50,6 +51,7 @@ pub fn track_db_operation(operation: &str) -> MetricsTracker {
 }
 
 /// Record webhook deliveries
+#[allow(dead_code)] // Will be used when webhook delivery system is implemented
 pub fn record_webhook_delivery(status: &str) {
     metrics::counter!("webhook_deliveries_total", 1, "status" => status.to_string());
 }
