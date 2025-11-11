@@ -272,10 +272,13 @@ pub async fn configure_webhook(
     .execute(&state.db)
     .await?;
 
+    // Invalidate auth cache for this organization to ensure fresh data
+    state.auth_cache.invalidate_org(&auth.org.id).await;
+
     tracing::info!(
         org_id = %auth.org.id,
         webhook_url = %req.webhook_url,
-        "Webhook configured"
+        "Webhook configured and cache invalidated"
     );
 
     Ok(Json(WebhookConfigResponse { success: true }))

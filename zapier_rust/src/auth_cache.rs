@@ -83,8 +83,7 @@ impl AuthCache {
         cache.insert(hashed_key, entry);
     }
 
-    /// Invalidate cache entry for a specific org (used when API key rotates)
-    #[allow(dead_code)] // Will be used when API key rotation is implemented
+    /// Invalidate cache entry for a specific org (used when webhook URL changes)
     pub async fn invalidate_org(&self, org_id: &Uuid) {
         let mut cache = self.cache.write().await;
         cache.retain(|_, entry| entry.org.id != *org_id);

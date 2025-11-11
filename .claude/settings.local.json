@@ -5,7 +5,11 @@
       "Bash(gh pr diff:*)",
       "Bash(git fetch:*)",
       "Bash(git checkout:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(uv run python:*)",
+      "Bash(psql:*)",
+      "Bash(lsof:*)",
+      "Bash(timeout 10 sbcl:*)"
     ],
     "deny": [],
     "ask": []
