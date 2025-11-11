@@ -6,6 +6,5 @@ pub async fn health_check() -> (StatusCode, Json<Value>) {
 }
 
 pub async fn metrics_handler() -> String {
-    // Placeholder - will be replaced with actual Prometheus metrics
-    "# Metrics endpoint\n".to_string()
+    crate::metrics::get_metrics()
 }

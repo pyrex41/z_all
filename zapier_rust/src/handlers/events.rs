@@ -35,25 +35,37 @@ pub async fn create_event(
     auth: AuthenticatedOrg,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, Json<CreateEventResponse>), ApiError> {
+    let ingestion_tracker = crate::metrics::track_event_ingestion();
+
     // Rate limiting
+    let rate_tracker = crate::metrics::track_rate_limit_check();
     state.rate_limiter.check(&auth.org.id, auth.org.rate_limit_per_minute).await?;
+    rate_tracker.record();
 
     // Payload size check (256KB)
     let payload_size = serde_json::to_vec(&req.payload)
-        .map_err(|e| ApiError::InvalidRequest(format!("Invalid JSON: {}", e)))?
+        .map_err(|e| {
+            crate::metrics::record_validation_error("invalid_json");
+            ApiError::InvalidRequest(format!("Invalid JSON: {}", e))
+        })?
         .len();
 
     if payload_size > 256 * 1024 {
+        crate::metrics::record_validation_error("payload_too_large");
         return Err(ApiError::PayloadTooLarge);
     }
 
     // Validate webhook configured
-    if auth.org.webhook_url.is_none() {
-        return Err(ApiError::WebhookNotConfigured);
-    }
+    let webhook_url = auth.org.webhook_url.as_ref()
+        .ok_or_else(|| {
+            crate::metrics::record_validation_error("webhook_not_configured");
+            ApiError::WebhookNotConfigured
+        })?
+        .clone();
 
-    // Deduplication check
+    // Fast deduplication check (if dedup_id provided)
     if let Some(dedup_id) = &req.dedup_id {
+        let dedup_tracker = crate::metrics::track_db_operation("dedup_check");
         let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM events WHERE organization_id = $1 AND dedup_id = $2)"
         )
@@ -61,53 +73,45 @@ pub async fn create_event(
         .bind(dedup_id)
         .fetch_one(&state.db)
         .await?;
+        dedup_tracker.record();
 
         if exists {
+            crate::metrics::record_validation_error("duplicate_event");
             return Err(ApiError::DuplicateEvent);
         }
     }
 
-    // Insert event and delivery in transaction
-    let mut tx = state.db.begin().await?;
+    // Queue event for async processing (returns immediately)
+    let event_to_process = crate::event_processor::EventToProcess {
+        organization_id: auth.org.id,
+        event_type: req.event_type.clone(),
+        dedup_id: req.dedup_id.clone(),
+        payload: req.payload,
+        webhook_url,
+    };
 
-    let event_id = sqlx::query_scalar::<_, Uuid>(
-        r#"
-        INSERT INTO events (organization_id, event_type, dedup_id, payload)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
-        "#
-    )
-    .bind(&auth.org.id)
-    .bind(&req.event_type)
-    .bind(&req.dedup_id)
-    .bind(&req.payload)
-    .fetch_one(&mut *tx)
-    .await?;
+    state.event_processor.queue_event(event_to_process).await
+        .map_err(|_| ApiError::SystemCapacityExceeded)?;
 
-    sqlx::query(
-        r#"
-        INSERT INTO event_deliveries (event_id, status)
-        VALUES ($1, 'pending')
-        "#
-    )
-    .bind(&event_id)
-    .execute(&mut *tx)
-    .await?;
+    ingestion_tracker.record();
 
-    tx.commit().await?;
+    // Generate tracking ID for immediate response
+    // Note: Actual event ID will be assigned during async processing
+    let tracking_id = Uuid::new_v4();
 
     tracing::info!(
-        event_id = %event_id,
+        tracking_id = %tracking_id,
         org_id = %auth.org.id,
         event_type = %req.event_type,
-        "Event created"
+        "Event accepted and queued for processing"
     );
 
+    // Return immediately with 202 Accepted (not waiting for DB or webhook)
     Ok((
-        StatusCode::CREATED,
+        StatusCode::ACCEPTED,
         Json(CreateEventResponse {
-            id: event_id,
-            status: "pending".to_string(),
+            id: tracking_id,
+            status: "accepted".to_string(),
         }),
     ))
 }

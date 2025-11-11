@@ -44,7 +44,11 @@ bytes = "1.5"
 num_cpus = "1.16"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "event_ingestion"
+harness = false
 
 [profile.release]
 lto = "fat"

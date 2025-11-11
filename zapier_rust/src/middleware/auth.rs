@@ -22,6 +22,7 @@ where
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let auth_tracker = crate::metrics::track_authentication();
         let state = Arc::<AppState>::from_ref(state);
 
         // Extract API key from header
@@ -34,7 +35,13 @@ where
         // Hash the provided API key
         let hashed_key = hash_api_key(api_key, &state.config.api_key_salt)?;
 
-        // Fetch org by hashed key
+        // Try cache first
+        if let Some(org) = state.auth_cache.get(&hashed_key).await {
+            auth_tracker.record();
+            return Ok(AuthenticatedOrg { org });
+        }
+
+        // Cache miss - fetch from database
         let org = sqlx::query_as::<_, Organization>(
             "SELECT * FROM organizations WHERE api_key_hash = $1"
         )
@@ -43,6 +50,10 @@ where
         .await?
         .ok_or(ApiError::Unauthorized)?;
 
+        // Store in cache for future requests
+        state.auth_cache.set(hashed_key, org.clone()).await;
+
+        auth_tracker.record();
         Ok(AuthenticatedOrg { org })
     }
 }

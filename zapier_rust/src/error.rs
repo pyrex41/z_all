@@ -26,6 +26,9 @@ pub enum ApiError {
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
 
+    #[error("System capacity exceeded")]
+    SystemCapacityExceeded,
+
     #[error("Event not found")]
     EventNotFound,
 
@@ -48,6 +51,7 @@ impl IntoResponse for ApiError {
             ApiError::PayloadTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "Payload too large (max 256KB)".to_string()),
             ApiError::WebhookNotConfigured => (StatusCode::BAD_REQUEST, "Webhook URL not configured".to_string()),
             ApiError::RateLimitExceeded => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded".to_string()),
+            ApiError::SystemCapacityExceeded => (StatusCode::TOO_MANY_REQUESTS, "System capacity exceeded, please try again later".to_string()),
             ApiError::EventNotFound => (StatusCode::NOT_FOUND, "Event not found".to_string()),
             ApiError::InvalidRequest(ref msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             ApiError::Internal(ref e) => {

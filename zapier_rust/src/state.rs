@@ -5,20 +5,31 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 use crate::config::Config;
+use crate::event_processor::EventProcessor;
+use crate::auth_cache::AuthCache;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
     pub config: Config,
     pub rate_limiter: Arc<RateLimiter>,
+    pub event_processor: Arc<EventProcessor>,
+    pub auth_cache: Arc<AuthCache>,
 }
 
 impl AppState {
-    pub fn new(db: PgPool, config: Config) -> Self {
+    pub fn new(
+        db: PgPool,
+        config: Config,
+        event_processor: Arc<EventProcessor>,
+        auth_cache: Arc<AuthCache>,
+    ) -> Self {
         Self {
             db,
             config,
             rate_limiter: Arc::new(RateLimiter::new()),
+            event_processor,
+            auth_cache,
         }
     }
 }
