@@ -1,0 +1,613 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Project Setup and Dependencies",
+        "description": "Initialize the Rust project structure, configure Cargo.toml with required dependencies, and set up basic application scaffolding using Axum and Tokio.",
+        "details": "Create a new Cargo project with `cargo new zapier-triggers-rust`. Update Cargo.toml with dependencies as specified in the PRD, including axum, tokio, sqlx, serde, etc. Set up the main.rs file with basic server setup, including tracing initialization, config loading, and a simple health check endpoint. Use the provided code patterns for main application setup. Ensure the project compiles and runs a basic server.",
+        "testStrategy": "Verify that the project builds successfully with `cargo build --release`, the server starts on the specified port, and the /health endpoint returns a 200 status. Run `cargo test` to ensure no compilation errors.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create New Cargo Project",
+            "description": "Initialize a new Rust project using Cargo with the specified project name.",
+            "dependencies": [],
+            "details": "Execute the command `cargo new zapier-triggers-rust` to create the project structure, including src/main.rs and Cargo.toml. Verify the directory is created and basic files are present.",
+            "status": "completed",
+            "testStrategy": "Check that the project directory exists and `cargo check` runs without errors."
+          },
+          {
+            "id": 2,
+            "title": "Configure Cargo.toml with Dependencies",
+            "description": "Update Cargo.toml to include all required dependencies as per the PRD specifications.",
+            "dependencies": [
+              1
+            ],
+            "details": "Edit Cargo.toml to add dependencies such as axum, tokio, sqlx, serde, and others listed in the PRD. Ensure versions are compatible and include necessary features for async runtime and database interactions.",
+            "status": "completed",
+            "testStrategy": "Run `cargo build` to confirm all dependencies resolve correctly without conflicts."
+          },
+          {
+            "id": 3,
+            "title": "Set Up Tracing Initialization in main.rs",
+            "description": "Implement tracing setup in the main.rs file for logging and debugging.",
+            "dependencies": [
+              1
+            ],
+            "details": "In main.rs, add code to initialize tracing using the provided patterns, including setting up a subscriber for logging. This should be done early in the main function to capture all subsequent logs.",
+            "status": "completed",
+            "testStrategy": "Run the application and verify that tracing logs are output to the console or configured sink."
+          },
+          {
+            "id": 4,
+            "title": "Implement Config Loading",
+            "description": "Add configuration loading logic to the application for environment variables or config files.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "In main.rs, implement config loading using a struct that deserializes from environment variables or a config file, including settings for database URL, server port, and other necessary parameters as per the PRD.",
+            "status": "completed",
+            "testStrategy": "Test with sample environment variables and ensure the config is loaded correctly without panics."
+          },
+          {
+            "id": 5,
+            "title": "Set Up Basic Server with Health Check Endpoint",
+            "description": "Configure the Axum server with Tokio runtime and add a health check endpoint.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "In main.rs, set up the Tokio runtime, create an Axum router with a /health endpoint that returns a 200 status, and bind the server to the configured port. Ensure the application compiles and runs a basic server loop.",
+            "status": "completed",
+            "testStrategy": "Build and run the server, then use curl or a browser to hit /health and confirm it returns 200 OK."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Database Schema and Migrations",
+        "description": "Implement the PostgreSQL database schema and SQLx migrations to match the PRD specifications for organizations, events, event_deliveries, and deduplication_cache tables.",
+        "details": "Create a migrations directory and use SQLx to define the database schema as provided in the PRD. Include all tables, indexes, and constraints. Implement migration scripts to create the schema. In the application code, ensure the database connection pool is set up and migrations are run on startup. Use compile-time checked queries with SQLx.",
+        "testStrategy": "Run migrations on a test PostgreSQL instance and verify that all tables and indexes are created correctly. Use SQLx's query macros to test basic inserts and selects. Ensure the schema matches the PRD exactly for compatibility.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Organizations Table Schema",
+            "description": "Define the PostgreSQL schema for the organizations table, including all columns, indexes, and constraints as specified in the PRD. Create the initial migration script for this table using SQLx.",
+            "dependencies": [],
+            "details": "In the migrations directory, create a SQL file defining the organizations table with fields like id, name, tier, api_keys, etc. Include primary key, unique constraints, and any indexes. Ensure the schema matches PRD exactly. Use SQLx macros for compile-time checks.",
+            "status": "completed",
+            "testStrategy": "Verify table creation and constraints on a test PostgreSQL instance by running the migration and checking schema with psql."
+          },
+          {
+            "id": 2,
+            "title": "Implement Events Table Schema",
+            "description": "Define the PostgreSQL schema for the events table, including all columns, indexes, and constraints as specified in the PRD. Create the migration script for this table using SQLx.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add a migration file for the events table with fields such as id, organization_id, event_type, payload, etc. Include foreign key to organizations, indexes on organization_id and event_type, and any other constraints. Integrate with SQLx for query validation.",
+            "status": "completed",
+            "testStrategy": "Run migration on test DB and perform basic inserts/selects using SQLx to ensure schema correctness and index performance."
+          },
+          {
+            "id": 3,
+            "title": "Implement Event Deliveries and Deduplication Cache Tables Schema",
+            "description": "Define the PostgreSQL schema for the event_deliveries and deduplication_cache tables, including all columns, indexes, and constraints as specified in the PRD. Create migration scripts for both tables using SQLx.",
+            "dependencies": [
+              2
+            ],
+            "details": "Create migration files for event_deliveries (with fields like id, event_id, webhook_url, status, attempts, etc.) and deduplication_cache (with id, hash, expires_at, etc.). Include foreign keys, indexes on status and hash, and constraints. Ensure compatibility with PRD and use SQLx for compile-time queries.",
+            "status": "completed",
+            "testStrategy": "Execute migrations on test DB, verify table structures, and test queries for deliveries and cache operations to confirm indexes and constraints work as expected."
+          },
+          {
+            "id": 4,
+            "title": "Set Up Database Connection Pool and Startup Migrations",
+            "description": "Integrate the database connection pool setup and ensure migrations run on application startup using SQLx.",
+            "dependencies": [
+              3
+            ],
+            "details": "In the application code, configure a SQLx PgPool for PostgreSQL connections. Implement logic to run all migrations on startup before the server starts. Handle migration errors gracefully. Ensure the pool is shared across handlers for efficient database access.",
+            "status": "completed",
+            "testStrategy": "Test application startup on a test environment, verifying migrations execute successfully and the pool connects without errors. Use integration tests to confirm database operations work post-migration."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Core API Endpoints Implementation",
+        "description": "Implement the core API endpoints: POST /api/events, GET /api/inbox, POST /api/ack/:event_id, POST /api/webhook/config, POST /api/keys/generate, GET /api/keys, POST /api/keys/rotate, and GET /health.",
+        "details": "Create handler functions for each endpoint using Axum. For POST /api/events, implement zero-copy ingestion with payload size checks, deduplication, and transaction-based inserts as shown in the PRD code patterns. Ensure JSON serialization uses serde_json or simd-json. Implement pagination for GET /api/inbox. Use SQLx for database interactions. Include error handling with custom ApiError types.",
+        "testStrategy": "Write unit tests for each handler, mocking the database state. Use integration tests to verify API responses match expected JSON formats and status codes. Run against the unified test suite to ensure 100% parity with Python/Elixir.",
+        "priority": "high",
+        "dependencies": [
+          2
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement POST /api/events endpoint",
+            "description": "Create a handler function for the POST /api/events endpoint using Axum, focusing on zero-copy ingestion with payload size checks, deduplication, and transaction-based inserts. Use serde_json or simd-json for JSON serialization and SQLx for database interactions. Include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Implement zero-copy ingestion by reading the request body directly into a buffer, check payload size to prevent oversized requests, perform deduplication logic to avoid duplicate events, and use transactions for atomic inserts into the database. Ensure the handler validates the JSON payload and responds with appropriate status codes.",
+            "status": "completed",
+            "testStrategy": "Write unit tests for the handler, mocking database interactions to verify zero-copy ingestion, deduplication, and transaction logic. Use integration tests to check API responses and error handling."
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/inbox endpoint",
+            "description": "Create a handler function for the GET /api/inbox endpoint using Axum, implementing pagination for retrieving inbox items. Use SQLx for database queries and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Implement pagination using query parameters like limit and offset, fetch inbox items from the database with SQLx, serialize the response as JSON, and handle cases where no items are found or pagination parameters are invalid. Ensure the endpoint supports efficient querying for large datasets.",
+            "status": "completed",
+            "testStrategy": "Unit tests for pagination logic and database queries. Integration tests to verify correct JSON responses and pagination behavior with various limits and offsets."
+          },
+          {
+            "id": 3,
+            "title": "Implement POST /api/ack/:event_id endpoint",
+            "description": "Create a handler function for the POST /api/ack/:event_id endpoint using Axum to acknowledge events. Use SQLx for updating the event status in the database and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Extract the event_id from the URL path, validate it, update the event's acknowledged status in the database using SQLx, and return a success response. Handle cases where the event does not exist or is already acknowledged, ensuring atomic updates.",
+            "status": "completed",
+            "testStrategy": "Unit tests for the handler with mocked database states. Integration tests to confirm status updates and error responses for invalid or non-existent event IDs."
+          },
+          {
+            "id": 4,
+            "title": "Implement POST /api/webhook/config endpoint",
+            "description": "Create a handler function for the POST /api/webhook/config endpoint using Axum to configure webhooks. Use SQLx for storing webhook configurations in the database and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Parse the request body for webhook configuration details (e.g., URL, events to listen for), validate the input, insert or update the configuration in the database using SQLx, and respond with the created configuration. Ensure proper validation for URLs and event types.",
+            "status": "completed",
+            "testStrategy": "Unit tests for input validation and database operations. Integration tests to verify configuration creation and retrieval, including error handling for invalid inputs."
+          },
+          {
+            "id": 5,
+            "title": "Implement POST /api/keys/generate endpoint",
+            "description": "Create a handler function for the POST /api/keys/generate endpoint using Axum to generate new API keys. Use SQLx for storing keys in the database and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Generate a new API key (e.g., using a secure random generator), hash it with Argon2id for storage, associate it with an organization, store it in the database using SQLx, and return the plain key in the response. Ensure keys are unique and securely handled.",
+            "status": "completed",
+            "testStrategy": "Unit tests for key generation and hashing. Integration tests to check key storage and response formats, verifying uniqueness and security."
+          },
+          {
+            "id": 6,
+            "title": "Implement GET /api/keys endpoint",
+            "description": "Create a handler function for the GET /api/keys endpoint using Axum to retrieve API keys for an organization. Use SQLx for querying the database and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Query the database using SQLx to fetch API keys associated with the authenticated organization, serialize them into a JSON response (excluding hashed values), and handle pagination if necessary. Ensure only authorized access to the organization's keys.",
+            "status": "completed",
+            "testStrategy": "Unit tests for database queries. Integration tests to verify response formats and access controls, including authentication checks."
+          },
+          {
+            "id": 7,
+            "title": "Implement POST /api/keys/rotate endpoint",
+            "description": "Create a handler function for the POST /api/keys/rotate endpoint using Axum to rotate API keys. Use SQLx for updating keys in the database and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Generate a new API key, hash it, update the database to replace the old key with the new one using SQLx, and return the new key. Ensure the rotation is atomic and the old key is invalidated immediately. Handle cases where the key to rotate does not exist.",
+            "status": "completed",
+            "testStrategy": "Unit tests for rotation logic and database updates. Integration tests to confirm key replacement and that old keys are invalidated."
+          },
+          {
+            "id": 8,
+            "title": "Implement GET /health endpoint",
+            "description": "Create a handler function for the GET /health endpoint using Axum to provide health check information. Use SQLx for basic database connectivity checks and include error handling with custom ApiError types.",
+            "dependencies": [],
+            "details": "Perform a simple health check, such as verifying database connectivity with SQLx and checking system status, then return a JSON response indicating health status. Keep it lightweight for load balancer checks, responding with 200 OK if healthy or appropriate errors if not.",
+            "status": "completed",
+            "testStrategy": "Unit tests for health logic. Integration tests to verify responses under normal and failure conditions, such as database unavailability."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Authentication Middleware",
+        "description": "Implement authentication middleware for API key validation using Argon2id hashing and constant-time comparisons.",
+        "details": "Create an AuthenticatedOrg extractor as per the PRD code pattern. Extract the X-API-Key header, hash it with Argon2, and query the database for the organization. Implement rate limiting based on tier. Ensure middleware is applied to protected routes. Handle unauthorized access with appropriate error responses.",
+        "testStrategy": "Test the middleware with valid and invalid API keys, verifying constant-time comparisons prevent timing attacks. Use benchmarks to ensure hashing doesn't impact performance. Integration tests should confirm protected endpoints require authentication.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement AuthenticatedOrg Extractor with Argon2 Hashing and Database Queries",
+            "description": "Create the AuthenticatedOrg extractor following the PRD code pattern. Extract the X-API-Key header from incoming requests, hash it using Argon2id, and perform a database query to validate and retrieve the associated organization. Ensure constant-time comparisons to prevent timing attacks and handle unauthorized access with proper error responses.",
+            "dependencies": [
+              2
+            ],
+            "details": "In the Rust code, define the AuthenticatedOrg struct as an Axum extractor. Use the argon2 crate for Argon2id hashing with secure parameters. Implement database queries using SQLx to check for matching hashed API keys in the organizations table. Include error handling for missing headers, invalid keys, or database errors, returning appropriate HTTP status codes like 401 Unauthorized.",
+            "status": "completed",
+            "testStrategy": "Test with unit tests for hashing and comparison logic, ensuring constant-time behavior. Use integration tests with a test database to verify valid and invalid API key scenarios, checking for correct organization retrieval and error responses."
+          },
+          {
+            "id": 2,
+            "title": "Integrate Rate Limiting by Tier and Apply Middleware to Routes",
+            "description": "Implement rate limiting functionality based on organization tiers, integrating it into the authentication middleware. Apply the middleware to all protected API routes to enforce limits and ensure only authenticated requests proceed.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add rate limiting logic using a crate like governor or tower_governor, configuring limits per tier (e.g., based on organization data from the database). Modify the AuthenticatedOrg extractor or create a wrapper middleware to check and enforce rate limits before allowing request processing. Apply this middleware to protected routes in the Axum router, ensuring it wraps the authentication checks. Handle rate limit exceeded with 429 Too Many Requests responses.",
+            "status": "completed",
+            "testStrategy": "Perform load testing to verify rate limits are enforced correctly per tier. Use integration tests to simulate requests from different organizations, checking that limits are respected and non-protected routes remain unaffected."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Delivery Worker Implementation",
+        "description": "Implement the async delivery worker for processing event deliveries with exponential backoff, retries, and parallel processing.",
+        "details": "Set up a Tokio task for the delivery worker as shown in the PRD. Use a channel for notifying new events. Fetch pending deliveries in batches, process them in parallel using reqwest for HTTP POSTs to webhooks. Implement retries with exponential backoff (1s, 2s, 4s, 8s, 16s) and move to DLQ after 5 attempts. Update delivery status in the database.",
+        "testStrategy": "Unit tests for retry logic and backoff calculations. Integration tests with a mock webhook server to verify deliveries, retries, and failure handling. Load tests to ensure parallel processing achieves target throughput without deadlocks.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          4
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up Tokio Task and Channel for Event Notifications",
+            "description": "Initialize the asynchronous Tokio task for the delivery worker and establish a channel mechanism to notify the worker of new events.",
+            "dependencies": [],
+            "details": "Create a Tokio task that runs in the background to handle delivery processing. Implement a channel (e.g., using tokio::sync::mpsc) for receiving notifications about new events that need delivery. Ensure the channel is integrated with the main application loop and can handle event notifications efficiently without blocking.",
+            "status": "completed",
+            "testStrategy": "Unit tests to verify channel creation and notification sending/receiving. Integration tests to ensure the Tokio task starts correctly and responds to notifications."
+          },
+          {
+            "id": 2,
+            "title": "Implement Batch Fetching and Parallel Processing with Reqwest",
+            "description": "Develop logic to fetch pending deliveries in batches from the database and process them in parallel using reqwest for HTTP POST requests to webhooks.",
+            "dependencies": [
+              1
+            ],
+            "details": "Query the database for pending deliveries in configurable batch sizes. Use tokio::spawn or futures::join_all to process deliveries concurrently. For each delivery, use reqwest to send HTTP POST requests to the configured webhook URLs, handling JSON payloads and headers appropriately. Update delivery status in the database after successful sends.",
+            "status": "completed",
+            "testStrategy": "Integration tests with a mock webhook server to verify batch fetching, parallel processing, and correct HTTP requests. Load tests to ensure throughput targets are met without deadlocks."
+          },
+          {
+            "id": 3,
+            "title": "Handle Retries, Exponential Backoff, and DLQ Logic",
+            "description": "Implement retry mechanism with exponential backoff for failed deliveries and move deliveries to a Dead Letter Queue (DLQ) after maximum attempts.",
+            "dependencies": [
+              2
+            ],
+            "details": "For each delivery attempt, implement retries with backoff intervals of 1s, 2s, 4s, 8s, 16s. After 5 failed attempts, mark the delivery as failed and move it to a DLQ table in the database. Ensure backoff is handled asynchronously without blocking other deliveries. Update delivery status and attempt counts in the database after each retry or failure.",
+            "status": "completed",
+            "testStrategy": "Unit tests for retry logic, backoff calculations, and DLQ insertion. Integration tests with mock failures to verify retries, backoff timing, and final DLQ placement."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Rate Limiting and Security Enhancements",
+        "description": "Implement tiered rate limiting, HTTPS enforcement, CORS, and other security measures.",
+        "details": "Add rate limiting middleware using Tower, checking against organization tiers (free:100/min, etc.). Enforce HTTPS with HSTS. Configure CORS for cross-origin requests. Ensure no sensitive data is logged and use constant-time comparisons. Implement API key rotation logic.",
+        "testStrategy": "Test rate limiting with simulated requests exceeding limits, verifying 429 responses with Retry-After headers. Security audits using tools like cargo audit. Penetration testing for common vulnerabilities like injection or timing attacks.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Tiered Rate Limiting Middleware",
+            "description": "Develop and integrate tiered rate limiting middleware using Tower, which checks request rates against organization tiers such as free (100/min) and enforces limits by returning 429 responses.",
+            "dependencies": [],
+            "details": "Use Tower's rate limiting layer to track requests per organization based on their tier. Store rate limit counters in a shared state or Redis if needed. Ensure the middleware is applied to all protected routes and respects the tier limits as specified.",
+            "status": "completed",
+            "testStrategy": "Simulate requests exceeding limits and verify 429 responses with Retry-After headers. Use load testing tools to confirm limits are enforced accurately across different tiers."
+          },
+          {
+            "id": 2,
+            "title": "Enforce HTTPS and Implement HSTS",
+            "description": "Configure the application to enforce HTTPS connections and implement HTTP Strict Transport Security (HSTS) headers to prevent downgrade attacks.",
+            "dependencies": [],
+            "details": "Set up middleware or server configuration to redirect HTTP requests to HTTPS. Add HSTS headers with appropriate max-age values to responses. Ensure this is applied globally to all endpoints for security.",
+            "status": "completed",
+            "testStrategy": "Test with HTTP requests to confirm automatic redirection to HTTPS. Use security scanning tools to verify HSTS headers are present and correctly configured."
+          },
+          {
+            "id": 3,
+            "title": "Configure CORS for Cross-Origin Requests",
+            "description": "Set up Cross-Origin Resource Sharing (CORS) configuration to allow or restrict cross-origin requests based on the application's security requirements.",
+            "dependencies": [],
+            "details": "Use Axum's CORS layer or middleware to define allowed origins, methods, and headers. Configure it to permit necessary cross-origin requests while blocking unauthorized ones, ensuring compatibility with webhooks and client applications.",
+            "status": "pending",
+            "testStrategy": "Test CORS preflight requests and actual cross-origin calls to verify allowed origins and methods work, while blocked ones return appropriate errors."
+          },
+          {
+            "id": 4,
+            "title": "Implement Additional Security Measures",
+            "description": "Add security enhancements including API key rotation logic, constant-time comparisons, and ensure no sensitive data is logged.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement logic for rotating API keys periodically, storing hashes securely. Use constant-time comparison functions for API key validation to prevent timing attacks. Audit logging to exclude sensitive data like full API keys or payloads.",
+            "status": "completed",
+            "testStrategy": "Conduct penetration testing for vulnerabilities like timing attacks. Use security audit tools like cargo audit. Test API key rotation by simulating key changes and verifying access."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Observability Setup",
+        "description": "Integrate Prometheus metrics, structured logging with tracing, and OpenTelemetry tracing.",
+        "details": "Set up metrics collection with the metrics crate and Prometheus exporter on :9090. Implement RED metrics (Rate, Error, Duration). Configure tracing-subscriber for JSON logging. Add tracing spans to key operations. Ensure logs are configurable by level.",
+        "testStrategy": "Verify metrics are exposed correctly via /metrics endpoint. Test logging output in JSON format under different scenarios. Use tracing tools to confirm distributed tracing works in a test environment.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Integrate Prometheus Metrics and RED Metrics",
+            "description": "Set up metrics collection using the metrics crate and Prometheus exporter on port 9090, implementing RED metrics (Rate, Error, Duration) for key operations.",
+            "dependencies": [],
+            "details": "Add the metrics and metrics-exporter-prometheus crates to Cargo.toml. Configure the Prometheus exporter to expose metrics on :9090. Implement RED metrics by defining counters for request rate, error rate, and histograms for request duration in the application code. Ensure metrics are collected for API endpoints and database operations.",
+            "status": "completed",
+            "testStrategy": "Verify metrics are exposed correctly via the /metrics endpoint using Prometheus or curl, checking for RED metrics presence and accuracy."
+          },
+          {
+            "id": 2,
+            "title": "Configure Structured Logging with Tracing-Subscriber",
+            "description": "Implement structured logging using tracing-subscriber for JSON output, ensuring logs are configurable by level.",
+            "dependencies": [],
+            "details": "Add tracing and tracing-subscriber crates to Cargo.toml. Configure tracing-subscriber in main.rs to output logs in JSON format with configurable levels (e.g., via environment variables). Integrate logging into the application startup and key operations to capture structured events.",
+            "status": "completed",
+            "testStrategy": "Test logging output in JSON format under different scenarios, such as varying log levels, and verify the structure matches expected JSON schema."
+          },
+          {
+            "id": 3,
+            "title": "Implement OpenTelemetry Tracing and Span Configuration",
+            "description": "Add OpenTelemetry tracing support and configure tracing spans for key operations to enable distributed tracing.",
+            "dependencies": [],
+            "details": "Add opentelemetry and tracing-opentelemetry crates to Cargo.toml. Set up OpenTelemetry tracing in the application, configuring it to work with tracing-subscriber. Add tracing spans to key operations like API handlers, database queries, and middleware using the #[tracing::instrument] macro or manual span creation.",
+            "status": "pending",
+            "testStrategy": "Use tracing tools like Jaeger or Zipkin to confirm distributed tracing works in a test environment, verifying spans are created and propagated correctly."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Testing and Benchmarking",
+        "description": "Implement comprehensive unit, integration, and load tests, including property-based tests and benchmarking against targets.",
+        "details": "Write unit tests for all handlers and workers. Create integration tests that run the full API stack. Implement load tests using tools like drill to achieve >2,500 req/s. Add property-based tests for serialization. Ensure 100% pass rate on unified test suite.",
+        "testStrategy": "Run cargo test for unit tests, and separate integration test suite. Benchmark with criterion and drill, comparing against PRD targets. Continuous integration to run tests on every PR.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          5,
+          7
+        ],
+        "status": "in_progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Unit Tests for Handlers and Workers",
+            "description": "Write comprehensive unit tests for all handlers and workers to ensure individual components function correctly.",
+            "dependencies": [],
+            "details": "Focus on testing each handler and worker in isolation using cargo test. Cover edge cases, error handling, and expected behaviors. Ensure tests are fast and do not require external dependencies.",
+            "status": "pending",
+            "testStrategy": "Run cargo test for unit tests, aiming for high coverage and quick execution."
+          },
+          {
+            "id": 2,
+            "title": "Create Integration Tests for Full API Stack",
+            "description": "Develop integration tests that run the entire API stack to verify end-to-end functionality.",
+            "dependencies": [
+              1
+            ],
+            "details": "Set up a separate integration test suite that starts the full application, including database and workers. Test API endpoints, data flow, and interactions between components. Use a test database instance.",
+            "status": "in_progress",
+            "testStrategy": "Execute integration tests with cargo test --test integration, verifying API responses and data consistency."
+          },
+          {
+            "id": 3,
+            "title": "Implement Load Tests and Benchmarking with Drill",
+            "description": "Implement load tests using Drill to achieve over 2,500 requests per second and benchmark against targets.",
+            "dependencies": [
+              2
+            ],
+            "details": "Configure Drill for load testing the API endpoints. Measure performance metrics like throughput, latency, and resource usage. Compare results against PRD targets and optimize as needed.",
+            "status": "pending",
+            "testStrategy": "Use Drill to simulate high load and Criterion for micro-benchmarks, ensuring targets are met."
+          },
+          {
+            "id": 4,
+            "title": "Add Property-Based Tests and CI/CD Integration",
+            "description": "Incorporate property-based tests for serialization and integrate all tests into CI/CD for 100% pass rate.",
+            "dependencies": [
+              3
+            ],
+            "details": "Use libraries like proptest for property-based testing on serialization logic. Set up CI/CD pipelines to run the unified test suite on every PR, ensuring no regressions and full coverage.",
+            "status": "pending",
+            "testStrategy": "Automate test runs in CI/CD, including property-based tests, and enforce 100% pass rate before merges."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Fly.io Deployment Configuration (Primary)",
+        "description": "Set up Fly.io deployment with PostgreSQL, Docker, fly.toml config, and CI/CD pipeline for demo and production.",
+        "details": "Create fly.toml with Fly.io-specific settings including health checks, metrics, internal networking. Set up multi-stage Dockerfile optimized for Fly.io deployment. Configure Fly.io PostgreSQL cluster and attach to app. Implement CI/CD with GitHub Actions for automated deployments to Fly.io. Include database migration strategy and secrets management. Ensure binary size <20MB and cold start <100ms on Fly.io Firecracker VMs.",
+        "testStrategy": "Deploy to Fly.io test environment, verify PostgreSQL connectivity via internal networking, test health checks and metrics endpoints. Run load tests on deployed Fly.io instance to confirm >2,500 req/s performance. Verify zero-downtime deployments and database migrations work correctly. Test scaling with fly scale commands.",
+        "priority": "high",
+        "dependencies": [
+          8
+        ],
+        "status": "in_progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Multi-Stage Dockerfile Optimized for Fly.io",
+            "description": "Develop a multi-stage Dockerfile using Alpine Linux with Fly.io-specific optimizations, ensuring the final binary is under 20MB and optimized for fast cold starts on Firecracker VMs.",
+            "dependencies": [],
+            "details": "Use a multi-stage build: (1) rust:1.76-alpine builder with musl-dev, pkgconfig, openssl-dev; (2) cargo dependency caching layer; (3) alpine:3.19 runtime with ca-certificates and libgcc. Include non-root user setup (appuser). Expose ports 8080 (HTTP) and 9090 (metrics). Binary should be placed at /usr/local/bin/zapier-triggers. Follow Fly.io best practices for container optimization.",
+            "status": "completed",
+            "testStrategy": "Build Docker image and verify size <50MB total. Test locally with docker run and verify startup time <100ms. Verify non-root user works correctly and all dependencies are included."
+          },
+          {
+            "id": 2,
+            "title": "Create fly.toml Configuration",
+            "description": "Create comprehensive fly.toml configuration file with app settings, build config, HTTP service definition, health checks, metrics, VM sizing, and environment variables.",
+            "dependencies": [
+              1
+            ],
+            "details": "Configure: app name, primary region (ord for demo), build dockerfile path, env vars (PORT=8080, RUST_LOG=info), http_service with internal_port 8080, force_https, health check at /health with 30s interval, metrics port 9090, VM sizing (256MB memory, shared CPU). Include auto_stop_machines=false for demo to keep instance running. Add statics configuration if needed.",
+            "status": "completed",
+            "testStrategy": "Validate fly.toml syntax with fly config validate. Deploy with fly deploy and verify all settings apply correctly. Test health checks trigger properly and metrics are accessible."
+          },
+          {
+            "id": 3,
+            "title": "Set Up Fly.io PostgreSQL and Database Connection",
+            "description": "Provision Fly.io PostgreSQL cluster, attach to application, configure DATABASE_URL connection string, and set up database migrations strategy.",
+            "dependencies": [
+              2
+            ],
+            "details": "Run 'fly postgres create --name zapier-triggers-db --region ord --vm-size shared-cpu-1x' to create PostgreSQL cluster. Run 'fly postgres attach zapier-triggers-db' to attach and auto-configure DATABASE_URL secret. Update Rust app to read DATABASE_URL from environment. Configure SQLx to use Fly.io internal networking (.internal DNS). Add release_command in fly.toml for automatic migrations on deploy, or create manual migration script via fly ssh console.",
+            "status": "pending",
+            "testStrategy": "Verify DATABASE_URL secret is set with fly secrets list. Test database connectivity from app via fly ssh console. Run test migrations and verify tables are created correctly. Test connection pooling works with Fly.io internal networking."
+          },
+          {
+            "id": 4,
+            "title": "Configure Secrets and Environment Management",
+            "description": "Set up Fly.io secrets for sensitive configuration including API key salts, webhook secrets, and any other environment-specific values.",
+            "dependencies": [
+              3
+            ],
+            "details": "Use 'fly secrets set' to configure: API_KEY_SALT (openssl rand -hex 32), WEBHOOK_SECRET (openssl rand -hex 32), and any other secrets. Document which secrets are set automatically (DATABASE_URL) vs manually. Create a secrets.example file with placeholders for local development. Ensure Rust app reads all config from environment variables using dotenvy and config-rs crates.",
+            "status": "pending",
+            "testStrategy": "Verify all secrets are set with fly secrets list (values should be hidden). Test app can read secrets correctly in Fly.io environment. Verify local .env.example file documents all required secrets for development."
+          },
+          {
+            "id": 5,
+            "title": "Implement GitHub Actions CI/CD Pipeline for Fly.io",
+            "description": "Create GitHub Actions workflow for automated testing, benchmarking, and deployment to Fly.io on main branch pushes.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create .github/workflows/ci.yml with jobs: (1) test - run cargo test, clippy, fmt with PostgreSQL service container; (2) benchmark - cargo bench on main branch only; (3) deploy - use superfly/flyctl-actions to deploy to Fly.io with FLY_API_TOKEN secret. Include cargo caching for faster builds. Add PostgreSQL service for integration tests. Configure to trigger on push to main and pull_request events.",
+            "status": "pending",
+            "testStrategy": "Create test branch, push changes, verify CI runs successfully. Test deployment to Fly.io staging environment. Verify FLY_API_TOKEN secret is configured in GitHub repo settings. Confirm zero-downtime deployments work correctly."
+          },
+          {
+            "id": 6,
+            "title": "Create Fly.io Deployment Scripts and Documentation",
+            "description": "Create deployment helper scripts and comprehensive documentation for Fly.io deployment, monitoring, scaling, and troubleshooting.",
+            "dependencies": [
+              5
+            ],
+            "details": "Create scripts/deploy-fly.sh for manual deployments with pre-flight checks. Document: initial setup steps (fly auth login, fly launch), deployment commands (fly deploy), monitoring (fly logs, fly status, fly dashboard), scaling (fly scale count, fly scale vm), database management (fly postgres connect), and troubleshooting (fly ssh console). Include cost estimates for different scaling levels.",
+            "status": "completed",
+            "testStrategy": "Follow documentation from scratch to deploy a test instance. Verify all commands work as documented. Test scaling up and down. Verify cost estimates are accurate based on Fly.io pricing."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Performance Optimizations and Profiling",
+        "description": "Apply zero-copy techniques, SIMD JSON parsing, PGO, LTO, and profile-guided optimizations to meet performance targets.",
+        "details": "Use simd-json for parsing, Bytes for payloads, and connection pooling. Enable LTO and PGO in Cargo.toml. Profile with perf/flamegraph and optimize hot paths. Ensure memory <200MB and CPU <30% at load.",
+        "testStrategy": "Benchmark before and after optimizations using criterion. Load test to verify targets: >2,500 req/s, <10ms p95 latency. Profile memory usage with valgrind to confirm efficiency.",
+        "priority": "high",
+        "dependencies": [
+          8,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Apply Zero-Copy and SIMD Techniques",
+            "description": "Implement zero-copy techniques using Bytes for payloads and SIMD JSON parsing with simd-json to improve performance in data handling and parsing operations.",
+            "dependencies": [],
+            "details": "Integrate Bytes crate for handling payloads without copying data. Replace standard JSON parsing with simd-json for accelerated SIMD-based parsing. Ensure connection pooling is utilized to minimize overhead. Update relevant handlers and workers to use these techniques, verifying compatibility with existing code.",
+            "status": "pending",
+            "testStrategy": "Run unit tests and benchmarks with criterion to measure parsing speed improvements and memory usage reductions."
+          },
+          {
+            "id": 2,
+            "title": "Enable LTO and PGO in Cargo",
+            "description": "Configure Link-Time Optimization (LTO) and Profile-Guided Optimization (PGO) in Cargo.toml to enhance compilation and runtime performance.",
+            "dependencies": [],
+            "details": "Modify Cargo.toml to enable LTO by setting lto = true in the [profile.release] section. Set up PGO by adding profile-guided optimization flags and running cargo build with profiling data collection. Ensure the build process includes PGO training runs on representative workloads before final optimization.",
+            "status": "pending",
+            "testStrategy": "Benchmark build times and runtime performance using criterion before and after enabling LTO and PGO, ensuring no regressions in functionality."
+          },
+          {
+            "id": 3,
+            "title": "Profile Application with Perf and Flamegraph",
+            "description": "Use perf and flamegraph tools to profile the application and identify performance bottlenecks in CPU and memory usage.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Install and configure perf on the system. Run the application under load while collecting profiling data with perf record. Generate flamegraphs using flamegraph tools to visualize hot paths. Analyze the output to pinpoint areas of high CPU or memory consumption, focusing on request handling and database interactions.",
+            "status": "pending",
+            "testStrategy": "Load test the application with tools like drill to simulate >2,500 req/s, collecting perf data during the test and reviewing flamegraphs for bottlenecks."
+          },
+          {
+            "id": 4,
+            "title": "Optimize Identified Hot Paths",
+            "description": "Based on profiling results, optimize the most performance-critical code paths to reduce CPU and memory usage.",
+            "dependencies": [
+              3
+            ],
+            "details": "Review flamegraph and perf reports to identify hot paths such as JSON parsing loops, database queries, or serialization code. Refactor code to minimize allocations, use more efficient algorithms, and leverage Rust's zero-cost abstractions. Apply optimizations iteratively, re-profiling after each change to measure impact.",
+            "status": "pending",
+            "testStrategy": "Use criterion for micro-benchmarks on optimized functions and integration tests to verify overall performance improvements without breaking functionality."
+          },
+          {
+            "id": 5,
+            "title": "Verify Memory and CPU Targets",
+            "description": "Conduct final verification to ensure the application meets memory <200MB and CPU <30% usage targets under load.",
+            "dependencies": [
+              4
+            ],
+            "details": "Run comprehensive load tests using drill or similar tools to simulate high traffic (>2,500 req/s). Monitor memory usage with valgrind or built-in tools and CPU with perf during tests. Adjust configurations or code as needed if targets are not met, ensuring p95 latency remains <10ms.",
+            "status": "pending",
+            "testStrategy": "Perform load testing in a staging environment, using monitoring tools to confirm memory and CPU metrics. Compare benchmarks against baseline to validate optimizations."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-10T21:27:53.985Z",
+      "updated": "2025-11-10T16:43:51.812428",
+      "description": "Tasks for master context",
+      "last_review": "2025-11-10T16:43:51.812437",
+      "notes": [
+        "MVP implementation complete - all core features working",
+        "Integration tests scaffolded but have compilation errors",
+        "No unit tests written yet",
+        "Fly.io deployment config ready but not deployed",
+        "Performance optimizations not started (pending benchmarks)",
+        "CORS and OpenTelemetry deferred to Phase 2"
+      ]
+    }
+  }
+}

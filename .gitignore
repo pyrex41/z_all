@@ -1,0 +1,206 @@
+# Zapier Triggers API - Monorepo .gitignore
+
+# ============================================
+# Python (zapier_python/)
+# ============================================
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+pytest_debug.log
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+pyrightconfig.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# UV package manager
+uv.lock
+
+# ============================================
+# Elixir (zapier_elixir/)
+# ============================================
+# Build artifacts
+_build/
+deps/
+*.ez
+
+# Generate on crash by the VM
+erl_crash.dump
+
+# Static artifacts
+/zapier_elixir/*/priv/static/
+
+# Language Server
+.elixir_ls/
+.lexical/
+
+# Temporary files
+*.beam
+*.swp
+*.swo
+*~
+
+# Since we are building assets from assets/,
+# we ignore priv/static. You may want to comment
+# this depending on your deployment strategy.
+/priv/static/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# ============================================
+# Rust (zapier_rust/)
+# ============================================
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock (typically tracked for binaries, ignored for libraries)
+# Adjust based on your needs
+# Cargo.lock
+
+# ============================================
+# Test Suite (unified_test_suite/)
+# ============================================
+# Test artifacts
+/unified_test_suite/.pytest_cache/
+/unified_test_suite/reports/*.json
+/unified_test_suite/reports/*.html
+/unified_test_suite/.coverage
+/unified_test_suite/test_data_*.json
+
+# ============================================
+# IDE / Editor files
+# ============================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# IntelliJ / PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================
+# OS files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+secrets/
+.secrets
+
+# ============================================
+# Logs
+# ============================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# Databases (local development)
+# ============================================
+*.sqlite
+*.sqlite3
+*.db
+
+# ============================================
+# Docker
+# ============================================
+.dockerignore
+
+# ============================================
+# Git
+# ============================================
+# Prevent nested repositories
+**/.git/
+
+# ============================================
+# Misc
+# ============================================
+.cache/
+tmp/
+temp/
+node_modules/

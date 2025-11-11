@@ -1,0 +1,14 @@
+# Python virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# uv lock file
+uv.lock
+
+# Benchmark results
+*_results.txt
+*.log

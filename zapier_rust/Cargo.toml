@@ -1,0 +1,53 @@
+[package]
+name = "zapier-triggers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
+
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "chrono", "uuid", "json", "migrate"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Authentication & crypto
+argon2 = "0.5"
+rand = "0.8"
+hex = "0.4"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+metrics = "0.21"
+metrics-exporter-prometheus = "0.13"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.7", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+config = "0.14"
+dotenvy = "0.15"
+bytes = "1.5"
+num_cpus = "1.16"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true

@@ -1,0 +1,38 @@
+app = "zapier-triggers-rust"
+primary_region = "ord"  # Chicago - demo region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  RUST_LOG = "info,zapier_triggers=debug"
+  RUST_BACKTRACE = "1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[metrics]
+  port = 9090
+  path = "/metrics"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[statics]]
+  guest_path = "/app/public"
+  url_prefix = "/public"

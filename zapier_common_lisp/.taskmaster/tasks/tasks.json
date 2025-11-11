@@ -1,0 +1,567 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up project structure and dependencies",
+        "description": "Initialize the Common Lisp project with ASDF system definition, Quicklisp dependencies, and basic directory structure as outlined in the PRD.",
+        "details": "Create the zapier-triggers.asd file with dependencies including woo, clack, lack, ningle, postmodern (for PostgreSQL), jonathan (for JSON), local-time, uuid, cl-ppcre, bordeaux-threads, and trivial-backtrace. Set up the src/, tests/, sql/, and scripts/ directories. Use Quicklisp to manage dependencies. Ensure SBCL is used as the runtime. Pseudo-code: (defsystem :zapier-triggers :depends-on (:woo :clack :lack :ningle :postmodern :jonathan :local-time :uuid :cl-ppcre :bordeaux-threads :trivial-backtrace))",
+        "testStrategy": "Verify that all dependencies load without errors by running sbcl --eval \"(ql:quickload :zapier-triggers)\" --quit. Check that the project structure matches the PRD specification.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create ASDF system definition file",
+            "description": "Create the zapier-triggers.asd file with the necessary system definition including all specified dependencies.",
+            "dependencies": [],
+            "details": "In the project root, create a file named zapier-triggers.asd. Define the system using ASDF with :depends-on listing woo, clack, lack, ningle, postmodern, jonathan, local-time, uuid, cl-ppcre, bordeaux-threads, and trivial-backtrace. Include components for src/, tests/, etc. Ensure the system name is :zapier-triggers.",
+            "status": "pending",
+            "testStrategy": "Load the .asd file in SBCL and check for syntax errors."
+          },
+          {
+            "id": 2,
+            "title": "Set up basic directory structure",
+            "description": "Create the required directories for the project as per the PRD.",
+            "dependencies": [],
+            "details": "In the project root, create the following directories: src/, tests/, sql/, and scripts/. Ensure they are empty initially and ready for file placement. This sets up the basic folder hierarchy for organizing code, tests, database scripts, and utility scripts.",
+            "status": "pending",
+            "testStrategy": "Verify the directories exist using ls or dir command and confirm they are empty."
+          },
+          {
+            "id": 3,
+            "title": "Install and configure Quicklisp",
+            "description": "Set up Quicklisp for dependency management in the Common Lisp environment.",
+            "dependencies": [],
+            "details": "Download and install Quicklisp if not already present. Load Quicklisp in SBCL by evaluating (load \"~/quicklisp/setup.lisp\"). Ensure Quicklisp is configured to manage the project's dependencies. This allows for easy installation of the required libraries.",
+            "status": "pending",
+            "testStrategy": "Run SBCL and evaluate (ql:quickload :quicklisp) to confirm Quicklisp is loaded without errors."
+          },
+          {
+            "id": 4,
+            "title": "Ensure SBCL runtime is configured",
+            "description": "Verify and set up SBCL as the primary Common Lisp runtime for the project.",
+            "dependencies": [],
+            "details": "Install SBCL if not present. Confirm SBCL version is compatible (e.g., 2.x). Set up any necessary environment variables or paths to use SBCL for running and compiling the project. Ensure SBCL can be invoked from the command line.",
+            "status": "pending",
+            "testStrategy": "Run sbcl --version and check that it executes without errors, returning the version information."
+          },
+          {
+            "id": 5,
+            "title": "Verify project setup and dependencies",
+            "description": "Test that the project structure and dependencies are correctly set up and loadable.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Run SBCL with the command sbcl --eval \"(ql:quickload :zapier-triggers)\" --quit. This should load the system and all dependencies without errors. Check that all directories are in place and the .asd file is valid.",
+            "status": "pending",
+            "testStrategy": "Execute the quickload command and ensure it completes successfully with no error messages. Confirm all dependencies are installed via Quicklisp."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Configure database connection and schema",
+        "description": "Set up PostgreSQL database connection pooling and create the required tables for organizations, events, and webhooks.",
+        "details": "Use postmodern for database interactions with connection pooling. Create sql/schema.sql with the provided CREATE TABLE statements for organizations, events, and webhooks, including indexes. Implement db/connection.lisp for establishing pooled connections using environment variables like DATABASE_URL. Ensure prepared statements are used for performance. Pseudo-code: (defun connect-db () (postmodern:connect-toplevel \"postgresql://user:pass@localhost/zapier_triggers\" :pooled-p t))",
+        "testStrategy": "Run the schema.sql script against a test PostgreSQL instance and verify tables are created with correct constraints and indexes. Use integration tests to confirm connection pooling works under load.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create and test the SQL schema file with tables and indexes",
+            "description": "Develop the sql/schema.sql file containing CREATE TABLE statements for organizations, events, and webhooks tables, including necessary indexes and constraints as specified in the PRD.",
+            "dependencies": [
+              1
+            ],
+            "details": "Write the SQL schema file with CREATE TABLE statements for organizations (id, name, api_key, tier), events (id, org_id, payload, status, created_at, updated_at), and webhooks (id, org_id, event_type, url, secret). Include primary keys, foreign keys, and indexes on relevant columns like org_id and event_type. Ensure the schema is optimized for the application's query patterns.",
+            "status": "pending",
+            "testStrategy": "Run the schema.sql script against a test PostgreSQL instance and verify that all tables are created with correct data types, constraints, and indexes by querying the database metadata."
+          },
+          {
+            "id": 2,
+            "title": "Implement and test the database connection module with pooling and environment variable handling",
+            "description": "Implement the db/connection.lisp module to establish pooled PostgreSQL connections using Postmodern, handling environment variables for configuration and ensuring prepared statements for performance.",
+            "dependencies": [
+              1
+            ],
+            "details": "In db/connection.lisp, define functions to connect to the database using environment variables like DATABASE_URL, enable connection pooling with Postmodern's connect-toplevel, and set up prepared statements for common queries. Include error handling for connection failures and support for multiple workers in a clustered setup. Use the provided pseudo-code as a starting point and expand it to handle env vars dynamically.",
+            "status": "pending",
+            "testStrategy": "Use integration tests to confirm that the connection module establishes pooled connections correctly, handles environment variables, and performs under load with multiple concurrent queries, verifying no connection leaks or timeouts."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement Woo server basic setup",
+        "description": "Configure the Woo HTTP server with Clack middleware stack, routing, and basic clustering support.",
+        "details": "In src/server.lisp, define a function to start the Woo server with Lack middleware builder including accesslog, CORS, auth, rate-limit, error-handler, and routes. Support multi-worker clustering for production. Use libev for event-driven architecture. Pseudo-code: (lack:builder :accesslog :cors *auth-middleware* *rate-limit-middleware* *error-handler* *routes*) (woo:run app :port 5000 :worker-num 4)",
+        "testStrategy": "Start the server and verify it listens on the specified port. Use curl to test basic connectivity and check that middleware is applied correctly via logs.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up Lack middleware stack with basic components",
+            "description": "Configure the Lack middleware builder to include essential components such as accesslog, CORS, authentication, rate limiting, error handling, and routing.",
+            "dependencies": [],
+            "details": "In src/server.lisp, use the Lack builder to stack middleware in the order: accesslog, CORS, auth middleware, rate limit middleware, error handler, and routes. Ensure each middleware is properly defined and integrated.",
+            "status": "pending",
+            "testStrategy": "Verify middleware application by checking logs for access entries and CORS headers in responses."
+          },
+          {
+            "id": 2,
+            "title": "Configure Woo server with routing and clustering",
+            "description": "Set up the Woo server to handle routing and enable multi-worker clustering for production environments.",
+            "dependencies": [],
+            "details": "Define a function in src/server.lisp to start the Woo server using the Lack-built app, specifying port 5000 and worker-num 4 for clustering. Integrate the routing middleware to handle incoming requests.",
+            "status": "pending",
+            "testStrategy": "Start the server and confirm it listens on port 5000 with multiple workers active."
+          },
+          {
+            "id": 3,
+            "title": "Integrate event-driven architecture with libev and test connectivity",
+            "description": "Ensure the server uses libev for event-driven operations and perform basic connectivity tests.",
+            "dependencies": [],
+            "details": "Configure Woo to utilize libev for efficient event handling. After setup, test the server by starting it and using curl to send requests, verifying responses and middleware functionality.",
+            "status": "pending",
+            "testStrategy": "Use curl to test basic GET requests, ensuring the server responds correctly and middleware logs are generated."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement health check endpoint",
+        "description": "Create the GET /health endpoint to check service and database connectivity.",
+        "details": "In routes/health.lisp, define a route that checks database connectivity and returns JSON status with timestamp. Ensure response time is <10ms. Use jonathan for JSON encoding. Pseudo-code: (ningle:route app \"/health\" () (if (db-connected-p) (jonathan:to-json '(:status \"ok\" :timestamp (local-time:now))) (jonathan:to-json '(:status \"error\"))))",
+        "testStrategy": "Send GET requests to /health and verify JSON response includes status and timestamp. Test under load to ensure <10ms response time.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create routes/health.lisp file",
+            "description": "Set up the routes/health.lisp file for defining the health check endpoint.",
+            "dependencies": [],
+            "details": "Create a new file named routes/health.lisp in the project's routes directory. Include necessary package imports such as ningle for routing, jonathan for JSON encoding, local-time for timestamps, and any database utility functions to ensure the file is ready for route definitions.",
+            "status": "pending",
+            "testStrategy": "Verify that the file exists, can be loaded into the Lisp environment without syntax errors, and that all required packages are accessible."
+          },
+          {
+            "id": 2,
+            "title": "Implement db-connected-p function",
+            "description": "Develop a function to check database connectivity.",
+            "dependencies": [
+              1
+            ],
+            "details": "In routes/health.lisp or an associated utility file, define a function named db-connected-p that performs a lightweight database connectivity check, such as executing a simple query or ping. The function should return t if connected and nil otherwise, handling exceptions gracefully to avoid crashes.",
+            "status": "pending",
+            "testStrategy": "Manually call the db-connected-p function with the database running and stopped, verifying it returns t when connected and nil when not, without throwing unhandled errors."
+          },
+          {
+            "id": 3,
+            "title": "Define GET /health route handler",
+            "description": "Set up the Ningle route for the GET /health endpoint.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Using ningle:route, define a GET route for \"/health\" in routes/health.lisp. The handler should call db-connected-p to check connectivity and prepare to return a JSON response based on the result, integrating with the overall application routing setup.",
+            "status": "pending",
+            "testStrategy": "Start the application server, send a GET request to /health using a tool like curl, and confirm the endpoint is accessible and returns a response without errors."
+          },
+          {
+            "id": 4,
+            "title": "Implement JSON response with status and timestamp",
+            "description": "Generate the JSON response including status and timestamp.",
+            "dependencies": [
+              3
+            ],
+            "details": "Within the route handler, use jonathan:to-json to encode a plist containing :status (\"ok\" or \"error\") and :timestamp (using local-time:now). Ensure the response is properly formatted as JSON and returned with appropriate HTTP status codes.",
+            "status": "pending",
+            "testStrategy": "Send GET requests to /health and use a JSON parser to verify the response contains valid JSON with 'status' and 'timestamp' fields, matching the expected values based on database connectivity."
+          },
+          {
+            "id": 5,
+            "title": "Optimize endpoint for <10ms response time",
+            "description": "Ensure the health check endpoint responds in under 10 milliseconds.",
+            "dependencies": [
+              4
+            ],
+            "details": "Profile the endpoint's performance, optimize the db-connected-p check for speed (e.g., use a cached or asynchronous lightweight query), and minimize any overhead in JSON encoding or timestamp generation to achieve sub-10ms response times under normal load.",
+            "status": "pending",
+            "testStrategy": "Use a load testing tool like Apache Bench or wrk to send multiple concurrent GET requests to /health, measure average response times, and confirm they are consistently below 10ms."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement API key management endpoints",
+        "description": "Develop POST /api/keys/generate and GET /api/keys endpoints for generating and retrieving API keys.",
+        "details": "In routes/keys.lisp and models/organization.lisp, generate UUID v4 keys using uuid library, store in organizations table with tier metadata. Support tier-based rate limits. Use cl-ppcre for any validation. Pseudo-code: (defun generate-api-key () (uuid:make-v4-string)) (ningle:route app \"/api/keys/generate\" :method :post (let ((key (generate-api-key))) (db-insert-organization key) (jonathan:to-json `(:api-key ,key))))",
+        "testStrategy": "Test key generation for uniqueness and format. Use integration tests to verify storage and retrieval via endpoints, ensuring thread-safety.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement key generation and storage in the organizations model",
+            "description": "Develop the logic to generate UUID v4 API keys and store them in the organizations table with tier metadata, ensuring uniqueness and proper database integration.",
+            "dependencies": [],
+            "details": "In models/organization.lisp, use the uuid library to generate UUID v4 strings. Implement a function to insert the key into the organizations table, associating it with tier metadata for rate limiting support. Ensure thread-safety and use cl-ppcre for any necessary validation of inputs.",
+            "status": "pending",
+            "testStrategy": "Test key generation for uniqueness by generating multiple keys and verifying no duplicates. Validate storage by checking database entries and ensuring tier metadata is correctly associated."
+          },
+          {
+            "id": 2,
+            "title": "Create and test the endpoints for generating and retrieving keys with tier support",
+            "description": "Implement the POST /api/keys/generate and GET /api/keys endpoints in routes/keys.lisp, handling key generation, storage, and retrieval while supporting tier-based rate limits.",
+            "dependencies": [
+              1
+            ],
+            "details": "Define Ningle routes for POST /api/keys/generate to generate a new key, store it, and return it as JSON. For GET /api/keys, retrieve and return existing keys for the authenticated organization. Integrate tier-based rate limiting logic. Use jonathan for JSON responses and ensure proper error handling.",
+            "status": "pending",
+            "testStrategy": "Use integration tests to verify endpoint functionality: send POST requests to generate keys, check for unique UUIDs and storage; send GET requests to retrieve keys, ensuring only authorized access. Test tier support by simulating different tiers and verifying rate limits."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement event ingestion endpoint",
+        "description": "Create POST /api/events endpoint to accept and store JSON event payloads with authentication.",
+        "details": "In routes/events.lisp and models/event.lisp, authenticate via X-API-Key header, validate JSON payload using schema, generate unique event IDs, store with timestamps. Enforce rate limits per tier. Pseudo-code: (ningle:route app \"/api/events\" :method :post (let ((api-key (get-header env \"x-api-key\"))) (if (valid-api-key-p api-key) (let ((event (jonathan:parse (get-body env)))) (db-insert-event event) (respond 201 (jonathan:to-json `(:id ,(generate-event-id)))))) (respond 401))))",
+        "testStrategy": "Send POST requests with valid/invalid API keys and payloads. Verify event storage, ID generation, and rate limiting enforcement.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add authentication and rate limiting checks",
+            "description": "Implement checks for API key authentication and enforce rate limits based on organization tiers before processing the event payload.",
+            "dependencies": [],
+            "details": "In the POST /api/events route, first verify the X-API-Key header using the authentication middleware. Then apply rate limiting middleware to check if the request is within the allowed limits for the organization's tier. If either fails, return appropriate error responses (401 for auth, 429 for rate limit). Ensure thread-safety for concurrent requests.",
+            "status": "pending",
+            "testStrategy": "Test with valid and invalid API keys, and simulate requests exceeding rate limits to verify correct HTTP status codes and headers."
+          },
+          {
+            "id": 2,
+            "title": "Implement JSON payload validation and event ID generation",
+            "description": "Validate the incoming JSON payload against a predefined schema and generate a unique event ID for storage.",
+            "dependencies": [
+              1
+            ],
+            "details": "After authentication and rate limiting pass, parse the request body as JSON using jonathan. Validate the payload structure (e.g., required fields like event type, data). If invalid, return a 400 error. Generate a unique event ID using a UUID or incremental counter. Add timestamps for creation and ingestion.",
+            "status": "pending",
+            "testStrategy": "Send POST requests with valid and invalid JSON payloads, checking for 400 responses on invalid data and verifying unique ID generation."
+          },
+          {
+            "id": 3,
+            "title": "Handle storage and response with error handling",
+            "description": "Store the validated event in the database and return a success response, including proper error handling for storage failures.",
+            "dependencies": [
+              2
+            ],
+            "details": "Once validated, insert the event into the database using db-insert-event, including the generated ID, timestamps, and organization context. On success, respond with 201 and JSON containing the event ID. Handle database errors gracefully, returning 500 if storage fails. Ensure the response is properly formatted with jonathan.",
+            "status": "pending",
+            "testStrategy": "Verify event storage by checking database entries after successful POSTs, and test error scenarios like database unavailability to ensure correct 500 responses."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement event retrieval (inbox) endpoint",
+        "description": "Develop GET /api/inbox endpoint with filtering and pagination for undelivered events.",
+        "details": "In routes/inbox.lisp, filter events by organization via API key, support status, limit, offset query params. Return JSON array with metadata. Pseudo-code: (ningle:route app \"/api/inbox\" () (let ((events (db-get-events (get-org-from-api-key) :status (get-param \"status\") :limit (parse-integer (get-param \"limit\")))) (jonathan:to-json `(:events ,events :count ,(length events)))))",
+        "testStrategy": "Insert test events and query /api/inbox with various filters and pagination. Verify correct filtering, pagination, and JSON structure.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement filtering and pagination logic in the query",
+            "description": "Develop the database query logic to filter events by organization, status, and apply pagination using limit and offset parameters.",
+            "dependencies": [],
+            "details": "In the db-get-events function, add support for filtering by organization ID (retrieved from API key), status (e.g., undelivered), and pagination with limit and offset. Ensure the query is optimized for performance, possibly using indexes on organization and status fields. Handle edge cases like invalid parameters gracefully.",
+            "status": "pending",
+            "testStrategy": "Test the db-get-events function with various combinations of status, limit, and offset parameters, verifying correct event retrieval and pagination."
+          },
+          {
+            "id": 2,
+            "title": "Create the endpoint with JSON response and metadata handling",
+            "description": "Set up the GET /api/inbox route in routes/inbox.lisp to handle requests, retrieve filtered events, and return a JSON response with event array and metadata.",
+            "dependencies": [
+              1
+            ],
+            "details": "Using Ningle, define the route to parse query parameters (status, limit, offset), call db-get-events with the organization from API key, and serialize the response as JSON including the events array and count metadata. Ensure proper error handling for missing or invalid parameters, and integrate with authentication middleware.",
+            "status": "pending",
+            "testStrategy": "Send GET requests to /api/inbox with different query parameters, check the JSON response structure, metadata accuracy, and that filtering and pagination work as expected."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement event acknowledgment endpoint",
+        "description": "Create POST /api/ack/:id endpoint to mark events as delivered.",
+        "details": "In routes/events.lisp, validate event ownership by organization, update status to delivered, return 204. Handle invalid IDs gracefully. Pseudo-code: (ningle:route app \"/api/ack/:id\" :method :post (let ((event-id (get-param :id))) (if (and (event-belongs-to-org-p event-id) (db-update-event-status event-id \"delivered\")) (respond 204) (respond 404))))",
+        "testStrategy": "Acknowledge existing and non-existing events, verify status updates and error responses.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          5,
+          6,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define the POST /api/ack/:id route in routes/events.lisp",
+            "description": "Set up the basic route structure for the acknowledgment endpoint using Ningle framework.",
+            "dependencies": [],
+            "details": "In routes/events.lisp, add a new route definition for POST /api/ack/:id. Ensure the route is properly integrated into the application's routing system. This involves using the ningle:route macro with the correct path and method.",
+            "status": "pending",
+            "testStrategy": "Verify that the route is accessible and responds to POST requests at the specified path."
+          },
+          {
+            "id": 2,
+            "title": "Extract and validate the event ID parameter",
+            "description": "Extract the :id parameter from the request and perform basic validation to ensure it's a valid identifier.",
+            "dependencies": [
+              1
+            ],
+            "details": "Within the route handler, retrieve the event-id from the URL parameters using get-param. Add checks to ensure the ID is a valid format (e.g., numeric or UUID as per system requirements). Handle cases where the parameter is missing or malformed by returning appropriate error responses.",
+            "status": "pending",
+            "testStrategy": "Test with valid and invalid ID formats to confirm parameter extraction and validation logic."
+          },
+          {
+            "id": 3,
+            "title": "Validate event ownership by organization",
+            "description": "Check if the event belongs to the requesting organization using the API key for authentication.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement the event-belongs-to-org-p function call within the route handler. This should verify that the event ID exists and is associated with the organization identified by the authenticated API key. If validation fails, prepare to return a 404 response.",
+            "status": "pending",
+            "testStrategy": "Test with events owned by the organization and those not owned, ensuring correct validation."
+          },
+          {
+            "id": 4,
+            "title": "Update event status to delivered in the database",
+            "description": "Perform the database update to mark the event as delivered if ownership is validated.",
+            "dependencies": [
+              3
+            ],
+            "details": "Call db-update-event-status with the event-id and 'delivered' status. Ensure the update is atomic and handles potential database errors gracefully. This step should only execute if the previous ownership check passes.",
+            "status": "pending",
+            "testStrategy": "Verify that the database status is updated correctly for valid events and remains unchanged for invalid ones."
+          },
+          {
+            "id": 5,
+            "title": "Handle response and error cases",
+            "description": "Return appropriate HTTP responses based on the outcome of validation and update operations.",
+            "dependencies": [
+              4
+            ],
+            "details": "If both ownership validation and status update succeed, return a 204 No Content response. For any failures (invalid ID, ownership check fail, or update error), return a 404 Not Found. Ensure all responses are handled gracefully without exposing internal errors.",
+            "status": "pending",
+            "testStrategy": "Send requests to acknowledge existing and non-existing events, checking for correct status codes and no response body for 204."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement authentication middleware",
+        "description": "Develop middleware to authenticate requests using API keys.",
+        "details": "In middleware/auth.lisp, create a Lack middleware that checks X-API-Key header against database, sets organization context. Integrate into middleware stack. Pseudo-code: (defun auth-middleware (app) (lambda (env) (let ((api-key (get-header env \"x-api-key\"))) (if (valid-api-key-p api-key) (funcall app env) (respond 401)))))",
+        "testStrategy": "Test protected endpoints with valid/invalid API keys, ensuring authentication blocks unauthorized access.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Integrate authentication middleware into Lack stack and test",
+            "description": "Integrate the newly created authentication middleware into the Lack middleware stack to enable API key validation for incoming requests. Then, test the integration by sending requests to protected endpoints with valid and invalid API keys to ensure proper authentication and access control.",
+            "dependencies": [],
+            "details": "Modify the main application file or middleware configuration to include the auth-middleware in the Lack stack. Ensure it is placed appropriately in the chain, typically before route handling. After integration, create test cases to verify that endpoints without valid API keys return 401, and those with valid keys proceed normally. Use the provided pseudo-code as a guide for implementation.",
+            "status": "pending",
+            "testStrategy": "Test by making HTTP requests to protected endpoints using tools like curl or a test framework, providing valid and invalid X-API-Key headers, and asserting the correct HTTP status codes and responses."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement rate limiting middleware",
+        "description": "Add per-tier rate limiting using token bucket or sliding window algorithm.",
+        "details": "In middleware/rate-limit.lisp, implement in-memory rate limiting with tiers (free:10/min, etc.). Return 429 with headers. Use bordeaux-threads for thread-safety. Pseudo-code: (defun rate-limit-middleware (app) (lambda (env) (if (within-limit-p (get-org-tier env)) (funcall app env) (respond 429))))",
+        "testStrategy": "Simulate requests exceeding limits and verify 429 responses with correct headers. Test across tiers.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3,
+          5,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement the rate limiting algorithm with tier support",
+            "description": "Develop the core rate limiting logic using a token bucket or sliding window algorithm, supporting different tiers such as free (10/min) and others, with in-memory storage.",
+            "dependencies": [],
+            "details": "In middleware/rate-limit.lisp, define functions to manage token buckets per tier, refill tokens based on time, and check if requests are within limits. Include logic to retrieve organization tier from the request environment.",
+            "status": "pending",
+            "testStrategy": "Unit tests for token bucket refill and limit checking across different tiers, simulating time passage."
+          },
+          {
+            "id": 2,
+            "title": "Ensure thread-safety and integrate with middleware stack",
+            "description": "Make the rate limiting implementation thread-safe using bordeaux-threads and integrate it into the Lack middleware stack to return 429 responses with appropriate headers when limits are exceeded.",
+            "dependencies": [
+              1
+            ],
+            "details": "Wrap rate limiting operations in locks or use thread-safe data structures. Create the rate-limit-middleware function as per the pseudo-code, ensuring it checks limits before calling the next app, and responds with 429 and headers like X-RateLimit-Remaining.",
+            "status": "pending",
+            "testStrategy": "Integration tests simulating concurrent requests to verify thread-safety and correct 429 responses with headers under load."
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Implement webhook configuration endpoint",
+        "description": "Create POST /api/webhook/config endpoint for storing webhook URLs per organization.",
+        "details": "In routes/webhook.lisp and models/webhook.lisp, validate URL format, store with optional auth headers and retry config. Pseudo-code: (ningle:route app \"/api/webhook/config\" :method :post (let ((url (get-param \"url\"))) (if (valid-url-p url) (db-insert-webhook url) (respond 400))))",
+        "testStrategy": "Configure webhooks and verify storage. Test with invalid URLs for error handling.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add validation for URL and optional configs, then store in DB",
+            "description": "Implement validation for webhook URLs and optional configurations such as authentication headers and retry settings, then store the webhook configuration in the database associated with the organization.",
+            "dependencies": [
+              2,
+              3,
+              5
+            ],
+            "details": "In models/webhook.lisp, create functions to validate URL format (e.g., using a regex for HTTP/HTTPS URLs), and to insert webhook configurations into the database with fields for URL, optional auth headers, and retry config. In routes/webhook.lisp, define the POST /api/webhook/config route to extract parameters from the request, perform validation, and store the config if valid, returning appropriate HTTP status codes.",
+            "status": "pending",
+            "testStrategy": "Test the endpoint with valid URLs and optional configs to ensure proper storage in the database. Test with invalid URLs to verify 400 error responses are returned."
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Integrate with unified test suite",
+        "description": "Ensure compatibility with the monorepo's unified test suite for functional and performance tests.",
+        "details": "Update unified_test_suite/config/test_config.py to include COMMON_LISP_BASE_URL. Modify run_tests.sh for --impl commonlisp. Run all 15+ functional tests and benchmarks, aiming for 100% pass rate and 500-800 req/s throughput.",
+        "testStrategy": "Execute ./run_tests.sh --type functional --impl commonlisp and verify all tests pass. Run performance tests to meet targets.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update test config for Common Lisp",
+            "description": "Modify unified_test_suite/config/test_config.py to include COMMON_LISP_BASE_URL for integration.",
+            "dependencies": [],
+            "details": "Locate the test_config.py file in the monorepo's unified test suite and add the COMMON_LISP_BASE_URL variable pointing to the local Common Lisp server endpoint, ensuring it matches the project's port and host settings.",
+            "status": "pending",
+            "testStrategy": "Load the config file in a Python environment and verify that COMMON_LISP_BASE_URL is defined without syntax errors."
+          },
+          {
+            "id": 2,
+            "title": "Modify run scripts for Common Lisp implementation",
+            "description": "Update run_tests.sh to support the --impl commonlisp flag for executing tests against the Common Lisp implementation.",
+            "dependencies": [
+              1
+            ],
+            "details": "Edit the run_tests.sh script to recognize the --impl commonlisp option, configure it to use the COMMON_LISP_BASE_URL from the config, and ensure it passes the correct parameters to the test runner for Common Lisp compatibility.",
+            "status": "pending",
+            "testStrategy": "Execute the script with --impl commonlisp and confirm it starts without errors, logging the correct base URL usage."
+          },
+          {
+            "id": 3,
+            "title": "Run and debug functional tests",
+            "description": "Execute all 15+ functional tests using the unified test suite and debug any failures to achieve a 100% pass rate.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Run ./run_tests.sh --type functional --impl commonlisp, monitor the output for failed tests, analyze error logs, and fix issues in the Common Lisp code such as API endpoints, data handling, or middleware behavior to ensure all tests pass.",
+            "status": "pending",
+            "testStrategy": "Verify that all functional tests pass by checking the test output for 100% success rate, re-running after fixes."
+          },
+          {
+            "id": 4,
+            "title": "Optimize for performance benchmarks",
+            "description": "Run performance benchmarks and optimize the Common Lisp implementation to meet 500-800 req/s throughput targets.",
+            "dependencies": [
+              3
+            ],
+            "details": "Execute performance tests via the unified test suite, profile the application for bottlenecks (e.g., in Woo server, database queries, or rate limiting), and apply optimizations such as improving concurrency, caching, or code efficiency to achieve the required throughput.",
+            "status": "pending",
+            "testStrategy": "Run benchmarks and measure req/s, confirming it falls within 500-800 range after optimizations."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-11T01:41:45.801Z",
+      "updated": "2025-11-11T01:41:45.801Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

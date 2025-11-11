@@ -1,0 +1,495 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up project infrastructure and database schema",
+        "description": "Initialize the project repository with UV, configure the tech stack (FastAPI, PostgreSQL, Redis), and create the database schema with tables for organizations, events, event_deliveries, and audit_log.",
+        "details": "Initialize UV project with pyproject.toml and .python-version (Python 3.12+). Use 'uv init' and configure dependencies: FastAPI, uvicorn, sqlmodel, alembic, asyncpg, redis, pytest, ruff, mypy. Use Terraform to provision infrastructure on Fly.io for MVP, including PostgreSQL 16 (RDS Multi-AZ) and Redis 7 (ElastiCache). Define SQL schema with SQLModel/Alembic for migrations. Create tables: organizations (id, name, api_key_hash, webhook_url, rate_limit, plan), events (id, org_id, type, dedup_id, payload JSONB, created_at partitioned), event_deliveries (id, event_id, status, attempts, error_message), audit_log (id, org_id, action, metadata). Add indexes: on org/created_at, unique on dedup, GIN on payload. Set up Docker Compose for local development with UV-based images.",
+        "testStrategy": "Unit tests for schema creation using 'uv run pytest'; integration tests to verify database connections and basic CRUD operations on tables.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize project with UV and configure dependencies",
+            "description": "Set up the project repository using UV, create pyproject.toml and .python-version for Python 3.12+, and configure all necessary dependencies including FastAPI, uvicorn, sqlmodel, alembic, asyncpg, redis, pytest, ruff, and mypy.",
+            "dependencies": [],
+            "details": "Use 'uv init' to initialize the project. Ensure .python-version specifies Python 3.12 or higher. Add all listed dependencies to pyproject.toml with appropriate versions. Run 'uv sync' to install dependencies and verify the setup works correctly.",
+            "status": "completed",
+            "testStrategy": "Run 'uv run pytest' to ensure basic project structure and dependencies are correctly set up."
+          },
+          {
+            "id": 2,
+            "title": "Provision infrastructure with Terraform on Fly.io",
+            "description": "Use Terraform to set up cloud infrastructure on Fly.io for the MVP, including provisioning PostgreSQL 16 (RDS Multi-AZ) and Redis 7 (ElastiCache).",
+            "dependencies": [],
+            "details": "Write Terraform configurations to deploy PostgreSQL and Redis instances on Fly.io. Ensure multi-AZ setup for PostgreSQL and ElastiCache for Redis. Configure security groups, VPC, and access controls. Apply the Terraform plan and verify resources are created successfully.",
+            "status": "pending",
+            "testStrategy": "Manual verification of infrastructure provisioning by checking Fly.io console for active instances and connectivity."
+          },
+          {
+            "id": 3,
+            "title": "Define database schema and set up migrations with SQLModel and Alembic",
+            "description": "Create the database schema using SQLModel, defining tables for organizations, events, event_deliveries, and audit_log, including partitioning, indexes, and constraints.",
+            "dependencies": [
+              1
+            ],
+            "details": "Use SQLModel to define models for each table with specified fields: organizations (id, name, api_key_hash, webhook_url, rate_limit, plan), events (id, org_id, type, dedup_id, payload JSONB, created_at partitioned), event_deliveries (id, event_id, status, attempts, error_message), audit_log (id, org_id, action, details). Add indexes on org/created_at, unique on dedup, GIN on payload. Set up Alembic for migrations and generate initial migration scripts.",
+            "status": "completed",
+            "testStrategy": "Unit tests for schema creation and integration tests to verify database connections and basic CRUD operations on tables."
+          },
+          {
+            "id": 4,
+            "title": "Set up local development environment with Docker Compose",
+            "description": "Configure Docker Compose for local development, using UV-based images to run the application with PostgreSQL and Redis.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create a docker-compose.yml file with services for the FastAPI app (using UV), PostgreSQL, and Redis. Use multi-stage Docker builds with UV cache for efficiency. Ensure volumes for data persistence and environment variables for configuration. Test that the stack starts up correctly and services communicate.",
+            "status": "completed",
+            "testStrategy": "Integration tests to verify Docker Compose setup, including database connections and basic application functionality."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement authentication and security",
+        "description": "Develop API key generation, hashing, and validation for organizations, including rate limiting and security measures.",
+        "details": "Implement key generation (64-char prefixed zap_live_/test_), hashing with bcrypt, and rotation support. Add middleware for auth validation, rate limiting (tiered: free 100/min, pro 1K, ent custom), and security (HTTPS only, CORS, no sensitive data logging). Use FastAPI dependencies for auth checks. Ensure org isolation and TLS 1.2+ encryption.",
+        "testStrategy": "Unit tests for key hashing and validation; integration tests for rate limiting (simulate requests exceeding limits) and auth failures; security audits for vulnerabilities.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement API Key Generation and Hashing",
+            "description": "Develop functionality for generating 64-character API keys with prefixes zap_live_ or zap_test_, hashing them using bcrypt, and supporting key rotation for organizations.",
+            "dependencies": [],
+            "details": "Create a secure key generation function that produces random 64-char strings prefixed with zap_live_ or zap_test_. Implement bcrypt hashing for storing keys securely. Add support for key rotation, ensuring old keys are invalidated after rotation. Ensure organization isolation in key management.",
+            "status": "pending",
+            "testStrategy": "Unit tests for key generation randomness, hashing correctness, and rotation logic; integration tests for key validation and rotation scenarios."
+          },
+          {
+            "id": 2,
+            "title": "Implement Middleware for Authentication and Rate Limiting",
+            "description": "Create FastAPI middleware to validate API keys, enforce tiered rate limiting, and handle authentication checks.",
+            "dependencies": [
+              1
+            ],
+            "details": "Develop middleware using FastAPI dependencies to authenticate requests by validating hashed API keys. Implement tiered rate limiting (free: 100/min, pro: 1000/min, enterprise: custom) using Redis for tracking. Ensure middleware integrates with auth checks and returns appropriate error responses for invalid keys or exceeded limits.",
+            "status": "pending",
+            "testStrategy": "Unit tests for middleware auth validation; integration tests for rate limiting by simulating requests exceeding limits across tiers; load tests for performance under high request volumes."
+          },
+          {
+            "id": 3,
+            "title": "Configure Security Measures including CORS and Encryption",
+            "description": "Set up security configurations such as HTTPS enforcement, CORS policies, TLS encryption, and prevent logging of sensitive data.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Enforce HTTPS-only access and configure CORS to allow necessary origins. Implement TLS 1.2+ encryption for secure connections. Ensure no sensitive data (like API keys) is logged in application logs. Integrate these into the FastAPI application for overall security.",
+            "status": "pending",
+            "testStrategy": "Security audits for vulnerabilities in HTTPS, CORS, and encryption; integration tests for secure connections and log sanitization; manual checks for compliance with security best practices."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement POST /events endpoint for event ingestion",
+        "description": "Create the core ingestion endpoint to accept JSON events, handle deduplication, rate limiting, and store events with initial delivery status.",
+        "details": "In FastAPI, define POST /events route: validate auth, check rate limits (Redis), dedup on dedup_id (24h window, Redis), insert event and event_delivery into PG in a transaction, queue to Redis Streams, return 201 with ID or 409/429. Payload ≤256KB, type required, data freeform. Ensure <100ms p95 latency.",
+        "testStrategy": "Unit tests for payload validation and dedup logic; load tests for ingestion latency and throughput (1K/sec); integration tests for end-to-end event creation and queuing.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define POST /events endpoint and payload validation",
+            "description": "Set up the FastAPI route for POST /events, including request validation for JSON payload structure, size limits (≤256KB), required fields like 'type', and freeform 'data'.",
+            "dependencies": [],
+            "details": "Implement the endpoint handler in FastAPI with Pydantic models for request validation. Ensure proper error responses for invalid payloads. Integrate with authentication middleware from Task 2.",
+            "status": "pending",
+            "testStrategy": "Unit tests for payload validation, including edge cases for size limits and required fields."
+          },
+          {
+            "id": 2,
+            "title": "Implement deduplication logic using Redis",
+            "description": "Add logic to check for duplicate events based on dedup_id within a 24-hour window using Redis, preventing re-ingestion of the same event.",
+            "dependencies": [
+              1
+            ],
+            "details": "Use Redis to store dedup_id with expiration. In the endpoint, query Redis before processing; if duplicate, return 409. Ensure atomic operations to avoid race conditions.",
+            "status": "pending",
+            "testStrategy": "Unit tests for deduplication checks and Redis interactions; integration tests for duplicate event handling."
+          },
+          {
+            "id": 3,
+            "title": "Integrate rate limiting with Redis",
+            "description": "Incorporate rate limiting checks based on organization tiers (from Task 2) using Redis to enforce limits like 100/min for free tier.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add rate limiting middleware or checks in the endpoint using Redis counters. Return 429 if limits exceeded. Ensure per-organization isolation.",
+            "status": "pending",
+            "testStrategy": "Integration tests simulating requests to verify rate limiting thresholds and error responses."
+          },
+          {
+            "id": 4,
+            "title": "Handle database transactions, queuing, and latency optimization",
+            "description": "Perform transactional inserts into PostgreSQL for event and event_delivery tables, queue to Redis Streams, and optimize for <100ms p95 latency.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Use SQLAlchemy or async PG for transactions. After validation and checks, insert data and queue to Redis Streams. Profile and optimize code paths, possibly using async operations and caching to meet latency goals.",
+            "status": "pending",
+            "testStrategy": "Load tests for ingestion latency and throughput (target 1K/sec); integration tests for end-to-end event creation, queuing, and database consistency."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement GET /inbox endpoint for retrieving undelivered events",
+        "description": "Develop the paginated endpoint to fetch undelivered events for manual retrieval and acknowledgment.",
+        "details": "In FastAPI, define GET /inbox: auth, paginate (limit 1-1K, cursor-based, desc by created_at), filter by status. Return events with metadata. Ensure efficient queries with PG indexes.",
+        "testStrategy": "Unit tests for pagination and filtering; integration tests for data retrieval accuracy and performance under load.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement GET /inbox endpoint with pagination and filtering",
+            "description": "Develop the FastAPI route for GET /inbox, including authentication, cursor-based pagination (limit 1-1K, descending by created_at), filtering by status, and returning events with metadata.",
+            "dependencies": [
+              2
+            ],
+            "details": "In FastAPI, define the GET /inbox route with authentication middleware, implement cursor-based pagination using limit and cursor parameters, ensure descending order by created_at, filter events by undelivered status, and return JSON response with event data and metadata. Handle edge cases like invalid cursors and limits.",
+            "status": "pending",
+            "testStrategy": "Unit tests for pagination logic and filtering; integration tests for endpoint response accuracy."
+          },
+          {
+            "id": 2,
+            "title": "Optimize queries with PostgreSQL indexes for efficient retrieval",
+            "description": "Ensure efficient database queries for the inbox endpoint by creating appropriate PostgreSQL indexes on relevant columns.",
+            "dependencies": [
+              1
+            ],
+            "details": "Analyze query patterns for the GET /inbox endpoint, create indexes on status, created_at, and potentially cursor-related fields in PostgreSQL to support fast pagination and filtering. Monitor query performance and adjust indexes as needed to maintain sub-100ms response times under load.",
+            "status": "pending",
+            "testStrategy": "Performance tests to measure query execution time with and without indexes; load tests to ensure efficiency under high concurrency."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement POST /ack endpoint for acknowledging delivered events",
+        "description": "Create the endpoint to mark events as delivered, supporting batch acknowledgments.",
+        "details": "In FastAPI, define POST /ack: auth, accept up to 1K IDs, update event_deliveries status to delivered, idempotent, return count. Use PG transactions for consistency.",
+        "testStrategy": "Unit tests for idempotency and batch updates; integration tests for status changes and error handling.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement batch acknowledgment logic for POST /ack endpoint",
+            "description": "Develop the logic to accept and process up to 1000 event IDs for batch acknowledgment, ensuring idempotency by checking current status before updates.",
+            "dependencies": [],
+            "details": "In the FastAPI endpoint handler, parse the request payload for a list of event IDs (up to 1K), validate each ID format, and prepare for status updates. Implement idempotency by querying existing statuses and only updating if not already delivered. Return the count of successfully acknowledged events.",
+            "status": "pending",
+            "testStrategy": "Unit tests for ID validation, batch processing limits, and idempotency checks; integration tests for handling duplicate IDs and large batches."
+          },
+          {
+            "id": 2,
+            "title": "Implement database transaction handling for event delivery status updates",
+            "description": "Use PostgreSQL transactions to ensure consistent updates of event_deliveries table status to 'delivered' for the acknowledged IDs.",
+            "dependencies": [
+              1
+            ],
+            "details": "Within the endpoint, wrap the database operations in a PostgreSQL transaction using asyncpg or SQLAlchemy. Execute a bulk update query to set status='delivered' for the provided IDs, ensuring atomicity and rollback on errors. Handle potential conflicts or locks to maintain data integrity.",
+            "status": "pending",
+            "testStrategy": "Unit tests for transaction rollback on failures; integration tests for concurrent updates and data consistency across batches."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Develop delivery worker for webhook posting",
+        "description": "Build the background worker to process queued events and deliver them to configured webhooks with retries.",
+        "details": "Implement Python worker using Redis Streams (XREADGROUP). For each event: fetch, POST to webhook_url with headers (X-Zapier-Event-*), 10s timeout, exp backoff (1-16s, 5 attempts). On success, ack; on fail, log/error and retry. Scale horizontally, target 1K+/sec/worker.",
+        "testStrategy": "Unit tests for retry logic and webhook posting; integration tests with mock webhooks for delivery success/failure; performance tests for throughput.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Redis Streams Consumer",
+            "description": "Set up the consumer group and logic to read events from Redis Streams using XREADGROUP for processing.",
+            "dependencies": [],
+            "details": "Configure a Redis consumer group for the stream, implement XREADGROUP to fetch pending events, and handle message parsing to extract event data, webhook URL, and headers.",
+            "status": "pending",
+            "testStrategy": "Unit tests for stream reading and message parsing; integration tests with Redis to verify consumer group behavior."
+          },
+          {
+            "id": 2,
+            "title": "Develop Webhook Posting with Retry Logic",
+            "description": "Implement the POST request to webhooks with exponential backoff and retry attempts.",
+            "dependencies": [
+              1
+            ],
+            "details": "For each event, perform HTTP POST to the webhook URL with custom headers (X-Zapier-Event-*), set 10-second timeout, implement exponential backoff starting at 1 second up to 16 seconds for up to 5 attempts, and handle success by acknowledging the message.",
+            "status": "pending",
+            "testStrategy": "Unit tests for retry logic and backoff calculation; integration tests with mock webhooks to simulate success and failure scenarios."
+          },
+          {
+            "id": 3,
+            "title": "Add Error Handling and Logging",
+            "description": "Incorporate comprehensive error handling and logging for failed deliveries and retries.",
+            "dependencies": [
+              2
+            ],
+            "details": "Log errors for each failed attempt including timestamps, error types, and event IDs; ensure retries are logged; implement structured logging for monitoring and debugging purposes.",
+            "status": "pending",
+            "testStrategy": "Unit tests for error logging functions; integration tests to verify logs are generated correctly during failures."
+          },
+          {
+            "id": 4,
+            "title": "Set Up Horizontal Scaling",
+            "description": "Configure the worker for horizontal scaling to handle high throughput.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Design the worker to run multiple instances, ensure consumer group handles distribution of messages across workers, and monitor for load balancing to achieve target of 1K+ events per second per worker.",
+            "status": "pending",
+            "testStrategy": "Integration tests with multiple worker instances to verify message distribution and throughput scaling."
+          },
+          {
+            "id": 5,
+            "title": "Conduct Performance Testing for Throughput",
+            "description": "Perform tests to ensure the worker meets the throughput target under load.",
+            "dependencies": [
+              4
+            ],
+            "details": "Set up performance tests simulating high event volumes, measure throughput per worker, and validate handling of 1K+/sec with metrics on latency, success rates, and resource usage.",
+            "status": "pending",
+            "testStrategy": "Load testing with tools like Locust or custom scripts to benchmark throughput and identify bottlenecks."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Add monitoring, logging, and observability",
+        "description": "Integrate Prometheus/Grafana for metrics, structured JSON logging (30d hot/1y cold), OTEL tracing (1% sample, 100% errors), and alerts.",
+        "details": "Set up Prometheus exporters in FastAPI and workers for requests, latencies, deliveries. Configure Grafana dashboards. Add alerts on errors >1%, latency >200ms, queue >10K. Ensure GDPR compliance for logs.",
+        "testStrategy": "Manual verification of dashboards and alerts; automated tests for log structure and metric collection.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Integrate Prometheus and Grafana for metrics and dashboards",
+            "description": "Set up Prometheus exporters in FastAPI and workers to collect metrics on requests, latencies, and deliveries. Configure Grafana dashboards for visualization.",
+            "dependencies": [
+              1
+            ],
+            "details": "Install and configure Prometheus client libraries in the FastAPI application and worker processes. Define custom metrics for request counts, response latencies, and delivery statuses. Set up Prometheus server to scrape these metrics. Create Grafana dashboards with panels for key metrics, ensuring they are accessible and customizable. Ensure metrics are collected efficiently without impacting performance.",
+            "status": "pending",
+            "testStrategy": "Manual verification of dashboards displaying correct metrics; automated tests for metric collection accuracy."
+          },
+          {
+            "id": 2,
+            "title": "Set up structured logging and OTEL tracing",
+            "description": "Implement structured JSON logging with retention policies (30 days hot, 1 year cold) and OpenTelemetry tracing with 1% sampling and 100% error sampling.",
+            "dependencies": [
+              1
+            ],
+            "details": "Configure logging in FastAPI and workers to output structured JSON logs including timestamps, levels, and contextual data. Set up log aggregation and retention using tools like Elasticsearch or Loki for hot storage and S3 or similar for cold storage. Integrate OpenTelemetry SDK for distributed tracing, configuring sampling rates as specified. Ensure all logs and traces comply with GDPR by anonymizing sensitive data and providing data deletion mechanisms.",
+            "status": "pending",
+            "testStrategy": "Automated tests for log structure validation and trace propagation; manual checks for retention and GDPR compliance."
+          },
+          {
+            "id": 3,
+            "title": "Configure alerts for monitoring thresholds",
+            "description": "Set up alerting rules in Prometheus for errors exceeding 1%, latency over 200ms, and queue size greater than 10,000 items.",
+            "dependencies": [
+              1
+            ],
+            "details": "Define alerting rules in Prometheus configuration based on the specified thresholds using collected metrics. Integrate with notification channels like email, Slack, or PagerDuty. Test alert triggers under simulated conditions. Ensure alerts are actionable and include sufficient context for quick resolution. Monitor alert effectiveness and adjust thresholds as needed.",
+            "status": "pending",
+            "testStrategy": "Manual verification of alert triggers and notifications; automated tests for alert rule logic."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Build dashboard and UI for management",
+        "description": "Create a web UI using htmx + FastAPI templates for key management, webhook config, testing, logs, retries, and exports.",
+        "details": "Develop routes for dashboard: display API keys, configure webhook URLs, send test events, view event history/logs/errors, manual retries, export logs (CSV/JSON). Include pagination and filters.",
+        "testStrategy": "Integration tests for backend API routes and template rendering; focus on API functionality over browser automation.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement UI routes and templates with HTMX",
+            "description": "Develop the core FastAPI routes and HTMX templates for the dashboard, including navigation, layout, and basic interactivity.",
+            "dependencies": [],
+            "details": "Create FastAPI routes for the dashboard homepage and subpages, using Jinja2 templates integrated with HTMX for dynamic updates without full page reloads. Ensure responsive design with CSS and include error handling for template rendering.",
+            "status": "pending",
+            "testStrategy": "Unit tests for route handlers and template rendering; integration tests for API endpoints that serve templates."
+          },
+          {
+            "id": 2,
+            "title": "Build key management and webhook configuration features",
+            "description": "Implement UI components for displaying, generating, and managing API keys, as well as configuring webhook URLs for organizations.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add routes and templates for key management (list keys, generate new ones, rotate hashes) and webhook config (set/update URLs). Use HTMX for form submissions and updates, integrating with backend auth and database operations for security and persistence.",
+            "status": "pending",
+            "testStrategy": "Unit tests for route handlers; integration tests to verify key generation and webhook URL updates in the database via API calls."
+          },
+          {
+            "id": 3,
+            "title": "Develop event history and retry functionalities",
+            "description": "Create UI for viewing event logs, history, errors, and performing manual retries on failed deliveries.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Implement routes for event history with pagination and filters (by status, date, type). Add retry buttons using HTMX to trigger backend retries. Display logs/errors in tables or modals, ensuring real-time updates where possible.",
+            "status": "pending",
+            "testStrategy": "Integration tests for pagination and filtering API endpoints; unit tests for retry action handlers and log retrieval accuracy."
+          },
+          {
+            "id": 4,
+            "title": "Add export capabilities with pagination",
+            "description": "Enable exporting event logs and history in CSV/JSON formats with pagination support in the UI.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Develop export routes that generate and download CSV/JSON files based on filtered event data. Integrate with UI pagination controls, using HTMX for seamless export triggers. Ensure large exports are handled efficiently without blocking the UI.",
+            "status": "pending",
+            "testStrategy": "Unit tests for CSV/JSON export file generation; integration tests for export API endpoint functionality and data accuracy."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement documentation and OpenAPI specs",
+        "description": "Generate OpenAPI/Swagger docs, quickstarts, and code examples for the API.",
+        "details": "Use FastAPI's auto-generated OpenAPI spec. Add custom docs pages with curl/Python/JS examples, tutorials, and videos. Host on dashboard or separate site.",
+        "testStrategy": "Manual review for accuracy; automated checks for OpenAPI validity.",
+        "priority": "low",
+        "dependencies": [
+          3,
+          4,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Generate OpenAPI specs and custom documentation pages",
+            "description": "Leverage FastAPI's auto-generated OpenAPI/Swagger specification and create custom documentation pages including curl, Python, and JavaScript code examples, tutorials, and video links, hosted on the dashboard or a separate site.",
+            "dependencies": [],
+            "details": "Utilize FastAPI's built-in OpenAPI generation for the API endpoints. Develop additional custom documentation pages with interactive examples in curl, Python, and JS. Include quickstart guides, tutorials, and embed video content. Ensure the docs are hosted either integrated into the dashboard or on a standalone site for easy access and navigation.",
+            "status": "pending",
+            "testStrategy": "Manual review of documentation accuracy and completeness; automated validation of OpenAPI spec compliance using tools like Swagger UI or OpenAPI linters."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Set up CI/CD, deployment, and testing pipeline",
+        "description": "Configure GitHub Actions for testing, staging, and production deployments with UV; set up Fly.io to AWS ECS Fargate migration.",
+        "details": "Create CI/CD pipeline using UV: install UV in CI, run 'uv sync' for dependencies, execute 'uv run pytest', 'uv run ruff check .', 'uv run mypy .' on PRs; deploy to staging on merge to main, prod on tag. Use Terraform for infra. Include end-to-end tests. Configure Docker images to use UV for faster builds (multi-stage with UV cache). Use uv.lock for reproducible builds.",
+        "testStrategy": "Test pipeline runs with mock deployments; verify staging/prod parity; validate UV caching speeds up CI.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Configure GitHub Actions for Testing and Linting with UV",
+            "description": "Set up GitHub Actions workflows to handle dependency management, testing, linting, and type checking using UV on pull requests.",
+            "dependencies": [],
+            "details": "Install UV in the CI environment, run 'uv sync' to synchronize dependencies, and execute 'uv run pytest' for testing, 'uv run ruff check .' for linting, and 'uv run mypy .' for type checking on PRs. Ensure the workflow is triggered on PR events and fails if any checks do not pass.",
+            "status": "pending",
+            "testStrategy": "Verify that the workflow runs successfully on PRs and correctly identifies test failures, linting issues, and type errors."
+          },
+          {
+            "id": 2,
+            "title": "Set up Deployment Pipelines to Staging and Production",
+            "description": "Configure GitHub Actions for automated deployments to staging upon merge to main and to production upon tagging, integrating Terraform for infrastructure management.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create deployment workflows that trigger on merge to main for staging deployment and on tag creation for production deployment. Use Terraform to manage infrastructure, include end-to-end tests in the deployment process, and ensure parity between staging and production environments.",
+            "status": "pending",
+            "testStrategy": "Test pipeline runs with mock deployments to verify staging and production parity, and check that end-to-end tests pass before deployment."
+          },
+          {
+            "id": 3,
+            "title": "Optimize Docker Builds with UV Caching",
+            "description": "Enhance Docker image builds by integrating UV for dependency management, utilizing multi-stage builds and caching for faster and reproducible deployments.",
+            "dependencies": [
+              2
+            ],
+            "details": "Configure Dockerfiles to use UV in multi-stage builds, leveraging UV cache for faster builds and uv.lock file for reproducible dependency installations. Ensure the Docker images are optimized for CI/CD pipeline efficiency.",
+            "status": "pending",
+            "testStrategy": "Validate that UV caching reduces build times in CI and that builds are reproducible using uv.lock across different environments."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-10T17:46:28.650Z",
+      "updated": "2025-11-10T17:46:28.650Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

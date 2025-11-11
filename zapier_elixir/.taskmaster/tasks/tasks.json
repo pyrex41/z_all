@@ -1,0 +1,488 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up Elixir/Phoenix project with dependencies",
+        "description": "Initialize a new Phoenix 1.7+ project with required dependencies like Ecto, Oban, HTTPoison, Hammer for rate limiting, and Comeonin for auth.",
+        "details": "Use mix new to create the project. Add dependencies in mix.exs: phoenix, ecto_sql, postgrex, oban, httpoison, hammer, comeonin, jason, phoenix_live_view, phoenix_swagger. Configure Cowboy/Bandit server. Set up basic config files for dev/test/prod environments. Implement basic OTP supervision tree.",
+        "testStrategy": "Run mix test to ensure project compiles and basic Phoenix routes work. Use ExUnit for unit tests on supervision tree startup.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Install dependencies and initialize Phoenix project",
+            "description": "Create a new Phoenix 1.7+ project using mix new and add all required dependencies to mix.exs, including phoenix, ecto_sql, postgrex, oban, httpoison, hammer, comeonin, jason, phoenix_live_view, and phoenix_swagger.",
+            "dependencies": [],
+            "details": "Use the command 'mix new my_app --phoenix' to generate the project structure. Edit mix.exs to include the listed dependencies in the deps function. Run 'mix deps.get' to fetch and install them. Ensure Elixir and Erlang versions are compatible with Phoenix 1.7+.",
+            "status": "pending",
+            "testStrategy": "Run 'mix compile' to verify all dependencies compile without errors and check that the project structure is correctly set up."
+          },
+          {
+            "id": 2,
+            "title": "Configure environment files and implement OTP supervision tree",
+            "description": "Set up basic configuration files for dev, test, and prod environments, configure the Cowboy or Bandit server, and implement a basic OTP supervision tree for the application.",
+            "dependencies": ["Subtask 1.1"],
+            "details": "Create or modify config/config.exs, config/dev.exs, config/test.exs, and config/prod.exs with appropriate settings for database, server, and other dependencies. In lib/my_app/application.ex, define a supervision tree using Supervisor.start_link with children for Repo, Endpoint, and other workers like Oban. Configure the server adapter in config.exs.",
+            "status": "pending",
+            "testStrategy": "Run 'mix test' to ensure the application starts correctly and the supervision tree initializes without errors. Use ExUnit to test basic startup and shutdown behaviors."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Design and implement database schemas with Ecto",
+        "description": "Create Ecto schemas for Event, EventDelivery, and Organization tables as specified, including indexes and validations.",
+        "details": "Define schemas in lib/my_app/events.ex and lib/my_app/organizations.ex. Use Ecto.Schema with fields: type, dedup_id, payload (JSONB), organization_id, timestamps. For EventDelivery: status, attempts, response_status, event_id. For Organization: name, api_key_hash, webhook_url, rate_limit_per_minute, tier. Add indexes on org_id/inserted_at, unique on dedup_id, GIN on payload. Use Repo for migrations.",
+        "testStrategy": "Write Ecto tests for schema validations and associations. Run migrations and verify table creation in PostgreSQL.",
+        "priority": "high",
+        "dependencies": [1],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define Organization schema with auth and webhook fields",
+            "description": "Create the Organization Ecto schema with fields for API key authentication, webhook configuration, and rate limiting.",
+            "dependencies": ["Parent Task 1"],
+            "details": "Define Organization schema in lib/my_app/organizations.ex using Ecto.Schema. Include fields: id (primary key), name (:string), api_key_hash (:string for bcrypt), webhook_url (:string), rate_limit_per_minute (:integer), tier (:string, enum: free/pro/business/enterprise), timestamps. Add validations for required fields, URL format for webhook_url, positive integer for rate_limit. Add unique index on api_key_hash.",
+            "status": "pending",
+            "testStrategy": "Write Ecto tests for Organization schema validations, including webhook URL format and rate limit constraints."
+          },
+          {
+            "id": 2,
+            "title": "Define Event and EventDelivery schemas with fields and validations",
+            "description": "Create Ecto schemas for Event and EventDelivery tables, including all specified fields and validations.",
+            "dependencies": ["Subtask 2.1"],
+            "details": "Define schemas in lib/my_app/events.ex using Ecto.Schema. Include fields for Event: type (:string), dedup_id (:string), payload (:map for JSONB), organization_id (:integer, foreign key), timestamps. For EventDelivery: status (:string, enum: pending/delivered/failed), attempts (:integer, default 0), response_status (:integer), last_error (:text), event_id (:integer, foreign key), timestamps. Add belongs_to associations and appropriate validations for each field to ensure data integrity.",
+            "status": "pending",
+            "testStrategy": "Write Ecto tests for schema validations and associations between Event, EventDelivery, and Organization."
+          },
+          {
+            "id": 3,
+            "title": "Create migrations with indexes for all tables",
+            "description": "Generate and run database migrations for the Organization, Event, and EventDelivery tables, including necessary indexes for performance.",
+            "dependencies": ["Subtask 2.1", "Subtask 2.2"],
+            "details": "Use mix ecto.gen.migration to create migrations for the tables. For Organization: add unique index on api_key_hash. For Event: add indexes on organization_id and inserted_at (composite for queries), unique index on dedup_id (for 24h window), and GIN index on payload field for JSONB querying. For EventDelivery: add indexes on event_id, status, and created_at. Ensure migrations handle JSONB and other PostgreSQL-specific features correctly. Set up foreign key constraints with on_delete: :delete_all for cascading deletes.",
+            "status": "pending",
+            "testStrategy": "Run migrations and verify table creation in PostgreSQL. Check indexes with \\d+ table_name in psql. Test foreign key constraints."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement authentication and security features",
+        "description": "Set up API key authentication with bcrypt hashing, organization isolation, HTTPS enforcement, and API key management endpoints.",
+        "details": "Create a Plug for auth that checks X-API-Key header, verifies against hashed keys in Organization schema. Use Comeonin for hashing. Implement CORS and TLS 1.2+ in endpoint config. Ensure no sensitive data in logs. Add endpoints for key generation and rotation with 64-char prefixed keys (zap_live_/zap_test_).",
+        "testStrategy": "Unit tests for auth Plug with valid/invalid keys. Integration tests for HTTPS-only access and CORS headers. API tests for key management endpoints.",
+        "priority": "high",
+        "dependencies": [1, 2],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create authentication Plug for API key verification",
+            "description": "Develop a Plug module that checks the X-API-Key header, verifies it against hashed API keys stored in the Organization schema using Comeonin for bcrypt hashing, and ensures organization isolation.",
+            "dependencies": ["Parent Task 2"],
+            "details": "Implement a new Plug in lib/my_app_web/plugs/authenticate.ex that intercepts requests, extracts the X-API-Key from headers, uses Comeonin.Bcrypt.check_pass to verify against stored hashed keys in the Organization database table. Handle cases for invalid or missing keys by returning 401 Unauthorized. Store authenticated org in conn.assigns[:current_organization] for downstream use. Ensure the Plug is integrated into the router pipeline for protected endpoints.",
+            "status": "pending",
+            "testStrategy": "Unit tests for the Plug with mocked requests containing valid and invalid API keys, verifying correct authentication and error responses."
+          },
+          {
+            "id": 2,
+            "title": "Implement API key generation and rotation endpoints",
+            "description": "Create REST endpoints for generating new API keys and rotating existing keys with proper prefixes (zap_live_/zap_test_).",
+            "dependencies": ["Subtask 3.1"],
+            "details": "Implement POST /api/keys/generate endpoint to create new 64-character API keys with environment-specific prefixes (zap_live_ for prod, zap_test_ for dev/test). Use :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false) for key generation. Hash with Comeonin.Bcrypt before storing. Return unhashed key only once. Implement POST /api/keys/rotate endpoint to invalidate old key and generate new one atomically. Add GET /api/keys endpoint to list active keys (return only metadata, not actual keys). Ensure all endpoints require existing authentication.",
+            "status": "pending",
+            "testStrategy": "API tests for key generation, rotation, and listing. Verify bcrypt hashing, prefix format, and key uniqueness. Test rotation atomicity with concurrent requests."
+          },
+          {
+            "id": 3,
+            "title": "Implement CORS and TLS configurations",
+            "description": "Configure CORS policies and enforce TLS 1.2+ in the endpoint settings to secure API communications.",
+            "dependencies": [],
+            "details": "Add CORS configuration to the Phoenix endpoint in lib/my_app_web/endpoint.ex using plug Corsica. Configure to allow specific origins (configurable via env vars), methods (GET, POST, OPTIONS), and headers (Content-Type, X-API-Key). Update the endpoint configuration to enforce HTTPS with TLS 1.2 or higher in config/prod.exs, setting https: [cipher_suite: :strong, otp_app: :my_app]. Add plug Plug.SSL in production to redirect HTTP to HTTPS. Ensure the configuration is applied globally and tested for proper enforcement.",
+            "status": "pending",
+            "testStrategy": "Integration tests to verify CORS headers are correctly set in responses and that non-HTTPS requests are rejected or redirected in production config."
+          },
+          {
+            "id": 4,
+            "title": "Ensure log security by preventing sensitive data exposure",
+            "description": "Modify logging configurations to exclude sensitive information like API keys from log outputs.",
+            "dependencies": [],
+            "details": "Review and update the Logger configuration in config/config.exs to filter out sensitive data. Use Phoenix.Logger with custom parameter filtering: config :phoenix, :filter_parameters, [\"api_key\", \"password\", \"token\", \"secret\"]. Implement custom log formatters using LoggerJSON to redact X-API-Key headers from request logs. Ensure API key hashes are never logged. Implement this across all logging levels and ensure compliance with security best practices. Add tests to verify redaction.",
+            "status": "pending",
+            "testStrategy": "Manual review of log outputs during testing to confirm no sensitive data appears, supplemented by automated checks in unit tests for log sanitization."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement rate limiting and deduplication",
+        "description": "Add rate limiting using Hammer and deduplication logic for events with 24-hour TTL.",
+        "details": "In the event controller, use Hammer.check_rate for org-specific limits (e.g., 100/min free, 1K/min pro). For dedup, check existence of dedup_id in PG or ETS cache with 24-hour window. Return 429 or 409 as appropriate. Use Cachex for fast dedup with TTL cleanup.",
+        "testStrategy": "Load tests with Hammer to simulate rate limits. Unit tests for dedup logic with mock events. Test TTL expiration for dedup cache.",
+        "priority": "high",
+        "dependencies": [1, 2, 3],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Integrate Hammer for rate limiting in event controller",
+            "description": "Implement rate limiting using Hammer.check_rate to enforce organization-specific limits, such as 100 requests per minute for free tier organizations.",
+            "dependencies": ["Parent Task 2", "Parent Task 3"],
+            "details": "In the event controller (lib/my_app_web/controllers/event_controller.ex), integrate Hammer to check rates based on organization ID extracted from conn.assigns[:current_organization]. Configure limits per organization tier: free: 100/min, pro: 1000/min, business: 10000/min, enterprise: custom. Use Hammer.check_rate(\"org:#{org.id}:events\", 60_000, org.rate_limit_per_minute). Return HTTP 429 with Retry-After header when limits are exceeded. Ensure proper error handling and logging of rate limit violations.",
+            "status": "pending",
+            "testStrategy": "Load tests with Hammer to simulate rate limits and verify 429 responses under high traffic. Test different tier limits and Retry-After header."
+          },
+          {
+            "id": 2,
+            "title": "Implement deduplication logic with 24-hour TTL cache",
+            "description": "Add deduplication logic to check for existing dedup_id in PostgreSQL or Cachex cache with 24-hour expiration to prevent duplicate event processing.",
+            "dependencies": ["Parent Task 2"],
+            "details": "In the event controller, before processing an event with a dedup_id, implement two-tier dedup: (1) Check Cachex cache first with Cachex.get(:dedup_cache, dedup_id) for fast lookup. (2) If cache miss, query PostgreSQL for dedup_id in events table within last 24 hours. If found in either, return HTTP 409 Conflict. On successful event insert, add dedup_id to Cachex with 24-hour TTL: Cachex.put(:dedup_cache, dedup_id, true, ttl: :timer.hours(24)). Add supervisor child for Cachex in application.ex with cache name :dedup_cache. Implement background task to clean up old dedup_ids from PostgreSQL (older than 24h) using Oban scheduled job.",
+            "status": "pending",
+            "testStrategy": "Unit tests for deduplication logic using mock events and cache interactions to verify 409 responses for duplicates. Test TTL expiration by mocking time. Test cache eviction and PostgreSQL cleanup job."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Create POST /events ingestion endpoint",
+        "description": "Build the core endpoint for ingesting events with validation, size limits, insertion, and queuing.",
+        "details": "In EventController.create, parse JSON params (type, data, dedup_id). Validate payload size ≤256KB. Perform auth, rate limit, dedup checks. Use Repo.transaction to insert Event and EventDelivery, then Oban.insert! for delivery job. Return 201 with ID. Handle errors like 409, 413, 429.",
+        "testStrategy": "API tests with Phoenix.ConnTest for successful ingestion, duplicates, rate limits, and oversized payloads. Verify DB inserts and Oban job creation.",
+        "priority": "high",
+        "dependencies": [1, 2, 3, 4],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Parse and validate JSON parameters with size limits",
+            "description": "Extract and validate the required parameters (type, data, dedup_id) from the incoming JSON request, enforcing a 256KB payload size limit.",
+            "dependencies": [],
+            "details": "In the EventController.create function, use Phoenix's action_fallback or custom parsing to extract params from the request body. First, check the request body size: if byte_size(conn.assigns[:raw_body]) > 256 * 1024, return 413 Payload Too Large. Validate that 'type' is a non-empty string, 'data' is a map or JSON object, and 'dedup_id' (if present) is a unique string. Use Ecto changesets or custom validation functions to ensure data integrity and handle invalid inputs by returning appropriate error responses (400 Bad Request).",
+            "status": "pending",
+            "testStrategy": "Unit tests with ExUnit to verify parameter extraction and validation logic, including edge cases like missing fields, invalid data types, and oversized payloads (257KB, 1MB)."
+          },
+          {
+            "id": 2,
+            "title": "Apply authentication, rate limiting, and deduplication checks",
+            "description": "Perform security and throttling checks before processing the event ingestion.",
+            "dependencies": ["Subtask 5.1"],
+            "details": "After parameter validation, the request should already be authenticated via the auth Plug (conn.assigns[:current_organization]). Implement rate limiting by calling the rate limit check from Task 4. Perform deduplication by calling the dedup check from Task 4 if dedup_id is present. Return 401 if unauthenticated, 429 if rate limited with Retry-After header, or 409 if duplicate found. Ensure all checks happen before any database writes.",
+            "status": "pending",
+            "testStrategy": "Integration tests using Phoenix.ConnTest to simulate requests with valid/invalid auth, rate-limited scenarios, and duplicate dedup_ids, verifying correct HTTP status codes (401, 409, 429)."
+          },
+          {
+            "id": 3,
+            "title": "Insert event and delivery records in database transaction",
+            "description": "Safely insert the Event and EventDelivery records into the database using transactions.",
+            "dependencies": ["Subtask 5.2"],
+            "details": "Within a Repo.transaction block in the controller, create and insert an Event record with the parsed type, data (as JSONB), dedup_id, and organization_id from conn.assigns[:current_organization].id. Simultaneously insert an EventDelivery record linked to the event with initial status: 'pending', attempts: 0. Use Ecto.Multi to compose both inserts: Multi.new() |> Multi.insert(:event, event_changeset) |> Multi.insert(:delivery, fn %{event: event} -> delivery_changeset end). Ensure atomicity to prevent partial inserts. Rollback on any errors and return 500 Internal Server Error with generic message (log specific error).",
+            "status": "pending",
+            "testStrategy": "Ecto tests for transaction behavior, including success and failure scenarios (e.g., constraint violations), verifying database state and associations. Test rollback behavior."
+          },
+          {
+            "id": 4,
+            "title": "Queue delivery job with Oban",
+            "description": "Enqueue the event delivery job for asynchronous processing.",
+            "dependencies": ["Subtask 5.3"],
+            "details": "After successful database insertion (transaction commit), use Oban.insert! to queue a DeliveryWorker job with the event_id and organization_id. Configure the job with queue: :delivery, max_attempts: 5. Use unique constraints to prevent duplicate jobs: unique: [period: 60, fields: [:queue, :worker, :args]]. Return a 201 Created response with JSON body: {\"id\": event.id, \"status\": \"pending\", \"created_at\": event.inserted_at}. Handle any Oban insertion errors gracefully by logging and returning 500 (event is stored but delivery may be delayed).",
+            "status": "pending",
+            "testStrategy": "Oban-specific tests to verify job enqueuing, including checks for job presence in the queue with correct args. Test unique constraint prevents duplicate jobs. Verify 201 response format."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Set up Oban job queue for delivery",
+        "description": "Configure Oban with Postgres-backed queues for reliable job processing with pruning and retry policies.",
+        "details": "Add Oban to supervision tree with :oban config in config.exs. Define queue :delivery. Ensure Oban handles retries with exp backoff (1-16s, 5 max). Configure job pruning (7-day retention). No Redis needed.",
+        "testStrategy": "Integration tests for Oban job insertion and processing. Simulate job failures to test retries. Verify pruning of old jobs.",
+        "priority": "high",
+        "dependencies": [1, 2],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Configure Oban supervision, delivery queue with retry policies, and job pruning",
+            "description": "Set up Oban in the application's supervision tree and configure the :delivery queue with exponential backoff retry settings and automatic pruning.",
+            "dependencies": ["Parent Task 1", "Parent Task 2"],
+            "details": "Add Oban to the children list in the supervision tree in lib/my_app/application.ex: {Oban, Application.fetch_env!(:my_app, Oban)}. In config/config.exs, define the :oban configuration: config :my_app, Oban, repo: MyApp.Repo, plugins: [Oban.Plugins.Pruner], queues: [delivery: 10], crontab: [{'0 2 * * *', MyApp.Workers.DeduplicationCleanup}]. Configure plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}] for 7-day retention. Set global retry policy in worker (max_attempts: 5, exponential backoff handled by Oban). Ensure the Postgres database is configured for Oban without Redis.",
+            "status": "pending",
+            "testStrategy": "Integration tests for job insertion and processing in the delivery queue, simulating failures to verify exponential backoff retries up to 5 attempts. Verify pruning deletes jobs older than 7 days."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Delivery Worker for webhook posting",
+        "description": "Create Oban worker to POST events to configured webhooks with 5 retries and Dead Letter Queue for permanent failures.",
+        "details": "Define MyApp.Workers.DeliveryWorker with perform/1. Fetch event and org, POST via HTTPoison with headers (X-Zapier-Event-Id, etc.), 10s timeout. Update EventDelivery status on success/failure. Handle at-least-once delivery. Add DLQ for events that fail all 5 retry attempts.",
+        "testStrategy": "Unit tests for worker perform/1 with mocked HTTPoison. Integration tests for full delivery flow, including retries and status updates. Test DLQ population for permanently failed events.",
+        "priority": "high",
+        "dependencies": [1, 2, 5, 6],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define DeliveryWorker perform function",
+            "description": "Implement the perform/1 function in MyApp.Workers.DeliveryWorker to fetch the event and organization data from the database using the job arguments.",
+            "dependencies": ["Parent Task 2"],
+            "details": "Create lib/my_app/workers/delivery_worker.ex with use Oban.Worker, queue: :delivery, max_attempts: 5. In the perform/1 function, extract the event_id and organization_id from the job args. Use Ecto to query the Event and Organization schemas with Repo.get!(Event, event_id) |> Repo.preload(:organization). Ensure the event belongs to the org by checking event.organization_id == organization_id. Handle cases where the event or org is not found by raising appropriate errors or logging. This sets up the foundation for the webhook posting logic.",
+            "status": "pending",
+            "testStrategy": "Unit tests for the perform/1 function with mocked database queries to verify fetching of event and org data. Test error handling for missing events/orgs."
+          },
+          {
+            "id": 2,
+            "title": "Implement HTTP POST with 5 retries via Oban",
+            "description": "Add logic to perform HTTP POST requests to the configured webhook URLs using HTTPoison, leveraging Oban's built-in retry mechanism.",
+            "dependencies": ["Subtask 7.1"],
+            "details": "After fetching event and org, construct the POST request body: %{event_id: event.id, type: event.type, data: event.payload, timestamp: event.inserted_at} |> Jason.encode!(). Set headers: [{\"X-Zapier-Event-Id\", event.id}, {\"X-Zapier-Event-Type\", event.type}, {\"Content-Type\", \"application/json\"}]. Use HTTPoison.post(event.organization.webhook_url, body, headers, timeout: 10_000, recv_timeout: 10_000). Return :ok for 2xx responses, {:error, reason} for failures (Oban will retry up to 5 times with exponential backoff automatically). Capture response status and body for status updates. Handle network errors, timeouts, and non-2xx responses as failures.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked HTTPoison to simulate successful posts (200, 201, 204), failures (4xx, 5xx), retries, and timeouts. Integration tests to verify Oban retry behavior (5 attempts with backoff) in a controlled environment."
+          },
+          {
+            "id": 3,
+            "title": "Update EventDelivery status and implement DLQ",
+            "description": "Update the EventDelivery record's status based on the HTTP request outcome and move permanently failed events to a Dead Letter Queue.",
+            "dependencies": ["Subtask 7.2"],
+            "details": "After the HTTP request, update the EventDelivery schema fields: increment attempts, set status to 'delivered' on success (2xx response) or 'failed' on error. Store response_status and last_error. Use Ecto changeset and Repo.update!. For permanently failed events (after 5 attempts, detected by job.attempt >= job.max_attempts), update status to 'dead_letter' and create a record in a new DeadLetterEvent table with event_id, failure_reason, failed_at timestamp. Log the outcome for monitoring. Ensure idempotency if the job is retried. Implement query interface in Task 8 for DLQ management.",
+            "status": "pending",
+            "testStrategy": "Unit tests for status update logic with mocked database operations. Integration tests for the full worker flow, including status changes after retries and verifying database state. Test DLQ population after 5 failed attempts. Verify delivered events don't go to DLQ."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement GET /inbox, POST /ack, and webhook configuration endpoints",
+        "description": "Build endpoints for retrieving undelivered events, acknowledging deliveries, and configuring organization webhooks.",
+        "details": "For GET /inbox: Paginated query on EventDelivery with status 'pending', filters, cursor. For POST /ack: Update up to 1K IDs to 'delivered', idempotent. For POST /webhook/config: Allow orgs to set/update webhook_url. Use Ecto.Query for efficient fetching.",
+        "testStrategy": "API tests for pagination, filtering, ack operations, and webhook config. Verify idempotency and error handling.",
+        "priority": "medium",
+        "dependencies": [1, 2, 3, 5],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement GET /inbox endpoint with pagination",
+            "description": "Create the GET /inbox endpoint to retrieve undelivered events with pagination, filters, and cursor-based navigation.",
+            "dependencies": ["Parent Task 5"],
+            "details": "Implement the endpoint in lib/my_app_web/router.ex and create InboxController. Use Ecto.Query to query EventDelivery with status 'pending', scoped to conn.assigns[:current_organization].id. Support query params: limit (1-1000, default 100), cursor (base64 encoded last ID), status filter (pending/failed/dead_letter). Implement cursor-based pagination: where([e], e.id < ^cursor_id) |> order_by([e], desc: e.inserted_at, desc: e.id) |> limit(^limit). Return JSON: {\"events\": [...], \"cursor\": next_cursor, \"has_more\": boolean}. Ensure efficient fetching with proper indexes.",
+            "status": "pending",
+            "testStrategy": "API tests for pagination, filtering, and response formats. Verify edge cases like empty results, invalid cursors, and large limit values. Test performance with 10K+ pending events."
+          },
+          {
+            "id": 2,
+            "title": "Implement POST /ack endpoint with bulk updates",
+            "description": "Build the POST /ack endpoint to acknowledge deliveries by updating multiple EventDelivery records to 'delivered' status.",
+            "dependencies": ["Parent Task 5"],
+            "details": "Implement POST /api/ack in InboxController. Accept JSON body: {\"event_ids\": [id1, id2, ...]} with up to 1000 IDs. Validate array length and ID formats. Use Ecto.Query for bulk update: from(ed in EventDelivery, where: ed.id in ^event_ids and ed.organization_id == ^org_id and ed.status == \"pending\") |> Repo.update_all(set: [status: \"delivered\", updated_at: DateTime.utc_now()]). Ensure idempotency by checking status == \"pending\" (already delivered events are ignored). Return JSON: {\"acknowledged\": count, \"failed\": [invalid_ids]}. Handle errors gracefully for partial failures.",
+            "status": "pending",
+            "testStrategy": "API tests for bulk updates (1, 100, 1000 IDs), idempotency (calling twice with same IDs), and error handling. Verify updates for valid/invalid IDs, wrong org IDs, and partial failures. Test transaction rollback on errors."
+          },
+          {
+            "id": 3,
+            "title": "Implement POST /webhook/config endpoint for webhook configuration",
+            "description": "Create an endpoint to allow organizations to configure or update their webhook URL for event delivery.",
+            "dependencies": ["Parent Task 3"],
+            "details": "Implement POST /api/webhook/config in WebhookController. Accept JSON body: {\"webhook_url\": \"https://example.com/webhook\"}. Validate URL format using URI.parse and ensure it's https:// for production (allow http://localhost for dev/test). Update Organization record: org = conn.assigns[:current_organization] |> Ecto.Changeset.change(webhook_url: validated_url) |> Repo.update!(). Return JSON: {\"webhook_url\": url, \"updated_at\": timestamp}. Add GET /api/webhook/config to retrieve current webhook URL. Ensure endpoint requires authentication. Log webhook config changes for audit.",
+            "status": "pending",
+            "testStrategy": "API tests for webhook configuration with valid HTTPS URLs, invalid URLs (HTTP in prod, malformed), and retrieval. Test authentication requirement and org isolation (can't configure other org's webhook)."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Build dashboard with Phoenix LiveView (POST-MVP - Phase 2)",
+        "description": "Create interactive UI for managing keys, viewing logs, testing webhooks, and exports. DEFERRED TO PHASE 2 - Use Swagger UI for MVP.",
+        "details": "Use Phoenix LiveView for real-time dashboard. Include forms for key management, event history, retry buttons, CSV/JSON exports. Integrate with OpenAPI/Swagger for docs. NOTE: This is post-MVP work. For initial launch, API documentation via Swagger UI is sufficient.",
+        "testStrategy": "Browser tests with Wallaby or manual QA for UI interactions. Unit tests for LiveView components.",
+        "priority": "low",
+        "dependencies": [1, 2, 3, 5, 7, 8],
+        "status": "pending",
+        "phase": "post-mvp",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement key management forms in Phoenix LiveView",
+            "description": "Create interactive forms for creating, editing, and deleting API keys within the dashboard using Phoenix LiveView components.",
+            "dependencies": ["Parent Task 1", "Parent Task 2", "Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Use LiveView to build forms with real-time validation for key generation, updates, and deletion. Integrate with Ecto schemas for persistence and ensure forms handle errors gracefully. Include CSRF protection and authorization checks.",
+            "status": "pending",
+            "testStrategy": "Unit tests for form validations and LiveView component interactions, plus browser tests for end-to-end form submissions."
+          },
+          {
+            "id": 2,
+            "title": "Build event history views in LiveView",
+            "description": "Develop views to display logs and event history with pagination and filtering options.",
+            "dependencies": ["Parent Task 1", "Parent Task 2", "Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Implement LiveView components to query and display Event and EventDelivery records. Add sorting by date, filtering by status or organization, and real-time updates for new events. Use efficient Ecto queries to handle large datasets.",
+            "status": "pending",
+            "testStrategy": "Unit tests for query logic and component rendering. Browser tests for pagination, filtering, and real-time updates."
+          },
+          {
+            "id": 3,
+            "title": "Add retry functionality for failed event deliveries",
+            "description": "Implement buttons and logic to retry sending failed webhooks or events.",
+            "dependencies": ["Parent Task 1", "Parent Task 2", "Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Add retry buttons in the event history views that trigger background jobs via Oban to resend events. Update EventDelivery status accordingly and provide feedback on retry attempts. Ensure idempotency and rate limiting.",
+            "status": "pending",
+            "testStrategy": "Unit tests for retry logic and job queuing. Integration tests to verify event resending and status updates."
+          },
+          {
+            "id": 4,
+            "title": "Implement export features for CSV and JSON",
+            "description": "Add functionality to export event data in CSV or JSON formats.",
+            "dependencies": ["Parent Task 1", "Parent Task 2", "Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Create export buttons that generate downloadable files from filtered event data. Use Elixir libraries like CSV or Jason for formatting. Handle large exports asynchronously to avoid blocking the UI, and include options for date ranges or filters.",
+            "status": "pending",
+            "testStrategy": "Unit tests for data serialization and file generation. Manual QA for download functionality and file integrity."
+          },
+          {
+            "id": 5,
+            "title": "Integrate OpenAPI/Swagger documentation",
+            "description": "Embed or link API documentation generated from OpenAPI/Swagger specs in the dashboard.",
+            "dependencies": ["Parent Task 1", "Parent Task 2", "Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Use phoenix_swagger to generate API docs and integrate a viewer or iframe in the LiveView dashboard. Ensure docs are auto-updated with code changes and provide interactive testing features for endpoints like /inbox and /ack.",
+            "status": "pending",
+            "testStrategy": "Unit tests for swagger spec generation. Browser tests for documentation display and interactive features."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Add monitoring, logging, and deployment setup (MVP: Logging/Metrics only)",
+        "description": "Implement observability with Telemetry/Prometheus, logging for MVP. Defer CI/CD and Terraform to Phase 1.5.",
+        "details": "Configure LoggerJSON for logs, OpenTelemetry for tracing (1% sample). Add Prometheus metrics. Include alerts on latency/queue depth. CI/CD (GitHub Actions) and Terraform provisioning deferred to Phase 1.5 after core API is validated.",
+        "testStrategy": "Monitor metrics in staging. Verify alert triggers. End-to-end tests for deployment pipeline (Phase 1.5).",
+        "priority": "medium",
+        "dependencies": [1, 2, 5, 6, 7],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up logging and telemetry (MVP - P0)",
+            "description": "Configure LoggerJSON for structured logs and OpenTelemetry for tracing with 1% sampling rate.",
+            "dependencies": ["Parent Task 1"],
+            "details": "Implement LoggerJSON in config/config.exs: config :logger, :console, format: {LoggerJSON.Formatters.BasicLogger, :format}, metadata: [:request_id, :organization_id]. Integrate OpenTelemetry for distributed tracing: add opentelemetry, opentelemetry_exporter, opentelemetry_phoenix deps. Set sampling rate to 1% in config: config :opentelemetry, :sampler, {:trace_id_ratio_based, 0.01}. Ensure traces include relevant metadata like request IDs, org IDs, and event IDs. Add custom spans for critical operations (event ingestion, webhook delivery).",
+            "status": "pending",
+            "testStrategy": "Verify logs are in JSON format and include required metadata. Verify traces are sampled at ~1% rate in development environment. Check span attributes."
+          },
+          {
+            "id": 2,
+            "title": "Configure Prometheus metrics (MVP - P0)",
+            "description": "Add Prometheus metrics for monitoring application performance, including latency and queue depth.",
+            "dependencies": ["Subtask 10.1"],
+            "details": "Integrate prometheus_ex or telemetry_metrics_prometheus to expose metrics at /metrics endpoint. Define custom metrics using Telemetry.Metrics: counter for events ingested, distribution for ingestion latency, gauge for Oban queue depth, counter for delivery success/failure, distribution for delivery latency. Set up alerts based on thresholds: latency p95 > 200ms, queue depth > 10K, error rate > 1%. Use Telemetry.attach_many to capture Phoenix and Ecto events. Configure Prometheus scraping in deployment.",
+            "status": "pending",
+            "testStrategy": "Scrape /metrics endpoint and verify metrics are exposed. Simulate high latency and queue depth to verify metrics update. Test alert thresholds with artificial delays."
+          },
+          {
+            "id": 3,
+            "title": "Implement CI/CD pipelines (Phase 1.5)",
+            "description": "Set up GitHub Actions for automated testing, building, and deployment to Fly.io and AWS. DEFERRED TO PHASE 1.5.",
+            "dependencies": ["Subtask 10.2"],
+            "details": "Create .github/workflows/ci.yml and deploy.yml. CI workflow: on pull_request, run mix format --check-formatted, mix deps.get, mix compile --warnings-as-errors, mix test, mix credo --strict. Deploy workflow: on push to main, run CI checks, build Docker image, push to registry, deploy to Fly.io (MVP) or AWS ECS (prod). Include steps for security scans (mix sobelow) and rollback mechanisms. Ensure pipelines handle both Elixir application and infrastructure deployments. Use secrets for API keys and deployment credentials.",
+            "status": "pending",
+            "phase": "phase-1.5",
+            "testStrategy": "Run end-to-end tests on the deployment pipeline, including successful builds, test failures blocking deploy, and rollbacks."
+          },
+          {
+            "id": 4,
+            "title": "Provision infrastructure with Terraform (Phase 1.5)",
+            "description": "Use Terraform to set up infrastructure on Fly.io and AWS for the application. DEFERRED TO PHASE 1.5.",
+            "dependencies": [],
+            "details": "Write Terraform configurations in /terraform directory for provisioning resources. For Fly.io (MVP): define fly.toml for app config, Postgres database. For AWS (production): ECS Fargate cluster, RDS Postgres Multi-AZ, ALB, VPC/subnets, security groups, CloudWatch logging. Include modules for scalable deployments (auto-scaling based on CPU/memory), security groups (restricted ingress/egress), and monitoring integrations (CloudWatch alarms). Ensure infrastructure supports the CI/CD pipelines and observability setup. Use Terraform workspaces for staging/prod environments.",
+            "status": "pending",
+            "phase": "phase-1.5",
+            "testStrategy": "Validate Terraform plans with terraform plan. Apply to a test environment with terraform apply, checking resource creation (VPC, ECS, RDS) and connectivity. Test auto-scaling by simulating load."
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Comprehensive E2E and Load Testing",
+        "description": "Implement end-to-end tests for full ingestion-to-delivery flow and load tests to validate throughput targets.",
+        "details": "Create integration tests that simulate complete workflows: API key generation → event ingestion → webhook delivery → ack. Implement load tests using tools like k6 or Gatling to validate 1K events/sec target per node, <100ms p95 ingestion latency, <5s p95 delivery latency. Test failure scenarios (webhook down, DB connection loss, high concurrency). Validate retry behavior and DLQ population under load.",
+        "testStrategy": "Run E2E tests in CI pipeline. Execute load tests in staging environment with monitoring. Generate performance reports with latency percentiles and throughput metrics.",
+        "priority": "medium",
+        "dependencies": [1, 2, 3, 4, 5, 6, 7, 8],
+        "status": "pending",
+        "phase": "testing",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement E2E integration tests",
+            "description": "Create end-to-end tests covering the complete event lifecycle from ingestion to delivery.",
+            "dependencies": ["Parent Task 3", "Parent Task 5", "Parent Task 7", "Parent Task 8"],
+            "details": "Create test/integration directory. Implement tests in ExUnit that: (1) Generate test API key via endpoint. (2) POST event to /api/events with valid payload. (3) Verify event stored in DB with correct status. (4) Wait for Oban job to process (use Oban.drain_queue/1 in tests). (5) Verify webhook delivery (mock webhook server using Bypass or Plug.Cowboy). (6) Verify EventDelivery status updated to 'delivered'. (7) Test GET /inbox returns pending events. (8) Test POST /ack updates status. Include negative tests: invalid auth, rate limit exceeded, duplicate dedup_id, webhook timeout/failure, DLQ for permanent failures.",
+            "status": "pending",
+            "testStrategy": "Run in CI with mix test test/integration. Use Docker Compose for test DB and mock webhook server. Verify all assertions pass and test coverage > 90% for core flows."
+          },
+          {
+            "id": 2,
+            "title": "Implement load and performance tests",
+            "description": "Create load tests to validate throughput and latency targets under realistic traffic patterns.",
+            "dependencies": ["Parent Task 5", "Parent Task 7"],
+            "details": "Use k6 or Tsung for load testing. Create scenarios in test/load_tests/: (1) Ramp-up test: 0 → 1K req/sec over 5 min. (2) Sustained load: 1K req/sec for 10 min. (3) Spike test: sudden jump to 5K req/sec. (4) Soak test: 500 req/sec for 1 hour. Measure: ingestion latency (p50, p95, p99), delivery latency, error rate, DB connection pool saturation, Oban queue depth. Set SLOs: p95 ingestion < 100ms, p95 delivery < 5s, error rate < 0.5%. Run against staging environment with production-like infrastructure (multiple nodes, realistic DB size). Generate HTML reports with graphs.",
+            "status": "pending",
+            "testStrategy": "Execute load tests in staging and verify all SLOs met. Identify bottlenecks via profiling (Flame, Benchee). Optimize and re-test. Document results in test/load_tests/RESULTS.md."
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "API Documentation and Developer Onboarding",
+        "description": "Create comprehensive API documentation, quickstart guides, and code examples for developers.",
+        "details": "Generate OpenAPI/Swagger specs using phoenix_swagger. Write quickstart guide covering: account setup, API key generation, sending first event (curl, Elixir, JS examples), configuring webhook, viewing events in inbox, handling retries. Document all endpoints with request/response examples, error codes, rate limits. Create troubleshooting guide for common issues. Add API changelog for versioning.",
+        "testStrategy": "Manual review of docs for completeness and accuracy. Test all code examples. Gather feedback from beta users on doc clarity.",
+        "priority": "medium",
+        "dependencies": [1, 2, 3, 4, 5, 6, 7, 8],
+        "status": "pending",
+        "phase": "post-mvp",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Generate and host OpenAPI/Swagger documentation",
+            "description": "Use phoenix_swagger to generate API specs and host interactive documentation.",
+            "dependencies": ["Parent Task 5", "Parent Task 8"],
+            "details": "Add phoenix_swagger to mix.exs. Annotate all controller actions with @doc and swagger_path macros. Define schemas for all request/response bodies. Generate swagger.json with mix phx.swagger.generate. Host Swagger UI at /api/docs endpoint using SwaggerUI static files. Ensure docs include: authentication (X-API-Key header), all endpoints (POST /events, GET /inbox, POST /ack, etc.), request/response examples, error responses (401, 409, 413, 429), rate limit headers. Add 'Try it out' functionality for testing endpoints. Keep swagger.json in version control and update with code changes.",
+            "status": "pending",
+            "testStrategy": "Verify swagger.json validates against OpenAPI 3.0 spec. Test Swagger UI renders correctly and 'Try it out' works. Review docs for completeness."
+          },
+          {
+            "id": 2,
+            "title": "Write quickstart guide and code examples",
+            "description": "Create developer-friendly quickstart documentation with code examples in multiple languages.",
+            "dependencies": ["Parent Task 3", "Subtask 12.1"],
+            "details": "Create docs/QUICKSTART.md with sections: (1) Introduction and use cases. (2) Getting started: sign up, generate API key. (3) Send your first event with curl example. (4) Code examples in Elixir (HTTPoison), JavaScript (fetch/axios), Python (requests). (5) Configure webhook URL. (6) View events in inbox. (7) Handle delivery failures and retries. (8) Rate limits and quotas by tier. (9) Best practices: deduplication, error handling, monitoring. Include copy-paste ready code snippets with comments. Add diagrams for event flow (ingestion → queue → delivery). Create examples/ directory with working sample apps in each language.",
+            "status": "pending",
+            "testStrategy": "Test all code examples by running them against staging API. Gather feedback from 3-5 developers on doc clarity and completeness. Iterate based on feedback."
+          },
+          {
+            "id": 3,
+            "title": "Create troubleshooting guide and API changelog",
+            "description": "Document common issues, solutions, and maintain API versioning changelog.",
+            "dependencies": ["Subtask 12.1", "Subtask 12.2"],
+            "details": "Create docs/TROUBLESHOOTING.md with sections: Common errors (401 Unauthorized - check API key, 409 Conflict - duplicate dedup_id, 429 Rate Limited - backoff and retry, 413 Payload Too Large - reduce payload, 500 errors - contact support), Webhook delivery issues (timeouts, invalid URLs, SSL errors), Debugging tips (check event status in inbox, view delivery attempts, inspect webhook logs). Create docs/CHANGELOG.md with versioning: v1.0.0 (MVP launch - initial endpoints), future versions documented with breaking changes, new features, deprecations. Follow semantic versioning. Add deprecation notices 3 months before removing features. Maintain migration guides for breaking changes.",
+            "status": "pending",
+            "testStrategy": "Review troubleshooting guide with support team. Simulate common issues and verify solutions work. Keep changelog updated with each release."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-10T18:02:18.797Z",
+      "updated": "2025-11-10T20:00:00.000Z",
+      "description": "Tasks for master context - Updated with PRD alignment fixes, Organization schema, webhook config, DLQ, dedup TTL, payload size validation, API key management, and comprehensive testing",
+      "mvpTasks": [1, 2, 3, 4, 5, 6, 7, 8, 10],
+      "phase1_5Tasks": [10],
+      "phase2Tasks": [9, 11, 12],
+      "estimatedMvpWeeks": 4
+    }
+  }
+}
