@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     redis_stream_name: str = Field(default="zapier:events")
     redis_consumer_group: str = Field(default="zapier:workers")
 
+    # Redis Stream Limits (prevent unbounded growth)
+    redis_stream_max_length: int = Field(default=100000)  # Max events in stream
+    redis_stream_ttl: int = Field(default=86400)  # 24 hours in seconds
+
     # Security
     api_key_secret: str = Field(default="dev-secret-change-in-prod")
 
