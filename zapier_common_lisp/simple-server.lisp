@@ -27,6 +27,9 @@
 (defvar *api-keys* (make-hash-table :test 'equal) "Simple in-memory API key storage")
 (defvar *events* nil "Simple in-memory event storage")
 (defvar *db-connection* nil "Database connection")
+(defvar *dedup-cache* (make-hash-table :test 'equal) "Deduplication cache")
+(defvar *dedup-max-size* 10000 "Maximum dedup cache entries before eviction")
+(defvar *dedup-lock* (bt:make-lock "dedup-cache-lock") "Thread-safe lock for dedup cache")
 
 ;; Utilities
 (defun plist-to-hash (plist)
@@ -53,6 +56,38 @@
       (format t "Error parsing JSON: ~a~%" e)
       nil)))
 
+;; Deduplication utilities
+(defun make-dedup-key (org-id dedup-id)
+  "Create cache key for deduplication"
+  (format nil "~a:~a" org-id dedup-id))
+
+(defun check-duplicate (org-id dedup-id)
+  "Check if event with dedup-id already exists (thread-safe). Returns event-id if duplicate, NIL otherwise."
+  (when dedup-id
+    (bt:with-lock-held (*dedup-lock*)
+      (gethash (make-dedup-key org-id dedup-id) *dedup-cache*))))
+
+(defun mark-as-seen (org-id dedup-id event-id)
+  "Add event to dedup cache (thread-safe). Implements simple cache eviction when full."
+  (when dedup-id
+    (bt:with-lock-held (*dedup-lock*)
+      ;; Simple cache eviction: clear all when limit reached
+      (when (>= (hash-table-count *dedup-cache*) *dedup-max-size*)
+        (format t "~&[CACHE] Evicting dedup cache (size: ~a)~%"
+                (hash-table-count *dedup-cache*))
+        (clrhash *dedup-cache*))
+      ;; Store new entry
+      (setf (gethash (make-dedup-key org-id dedup-id) *dedup-cache*) event-id))))
+
+(defun get-cache-stats ()
+  "Get deduplication cache statistics"
+  (bt:with-lock-held (*dedup-lock*)
+    (list :size (hash-table-count *dedup-cache*)
+          :max-size *dedup-max-size*
+          :utilization (format nil "~,1f%"
+                              (* 100 (/ (hash-table-count *dedup-cache*)
+                                       *dedup-max-size*))))))
+
 ;; Database setup
 (defun connect-db ()
   "Connect to PostgreSQL database"
@@ -78,16 +113,44 @@
 
 (define-easy-handler (post-event :uri "/api/events") ()
   (let* ((api-key (header-in* :x-api-key))
-         (body (get-json-body)))
-    (if (gethash api-key *api-keys*)
-        (progn
-          (push (list :id (uuid:make-v4-uuid)
-                     :type (gethash "type" body)
-                     :payload (gethash "payload" body)
-                     :timestamp (local-time:now))
-                *events*)
-          (json-response (list :status "accepted"
-                              :event-id (first (first *events*)))))
+         (body (get-json-body))
+         (org-info (gethash api-key *api-keys*)))
+    (if org-info
+        (let* ((event-type (gethash "type" body))
+               (payload (gethash "payload" body))
+               (dedup-id (gethash "dedup_id" body))
+               (event-id (uuid:make-v4-uuid))
+               (org-name (getf org-info :org-name)))
+
+          ;; Check for duplicate if dedup-id provided
+          (let ((existing-event-id (check-duplicate org-name dedup-id)))
+            (if existing-event-id
+                ;; Duplicate found - return existing event-id
+                (progn
+                  (format t "~&[DEDUP] Duplicate event rejected: ~a (org: ~a)~%"
+                          dedup-id org-name)
+                  (json-response (list :status "duplicate"
+                                      :message "Event already processed"
+                                      :event-id (format nil "~a" existing-event-id))
+                                 200))
+              ;; New event - process and cache
+              (progn
+                ;; Store event
+                (push (list :id event-id
+                           :type event-type
+                           :payload payload
+                           :dedup-id dedup-id
+                           :timestamp (local-time:now))
+                      *events*)
+
+                ;; Mark in dedup cache
+                (mark-as-seen org-name dedup-id event-id)
+
+                (format t "~&[EVENT] Created: ~a (type: ~a, dedup: ~a)~%"
+                        event-id event-type dedup-id)
+
+                (json-response (list :status "accepted"
+                                    :event-id (format nil "~a" event-id)))))))
         (json-response (list :error "Invalid API key") 401))))
 
 (define-easy-handler (get-inbox :uri "/api/inbox") ()
@@ -96,6 +159,10 @@
         (json-response (list :events *events*
                             :count (length *events*)))
         (json-response (list :error "Invalid API key") 401))))
+
+(define-easy-handler (cache-stats :uri "/stats/cache") ()
+  "Get deduplication cache statistics"
+  (json-response (get-cache-stats)))
 
 ;; Server control
 (defun start-server (&key (port 5001))
