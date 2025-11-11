@@ -18,11 +18,13 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
 
   import Ecto.Query
 
-  @min_poll_interval 100   # Minimum poll interval (ms)
-  @max_poll_interval 2_000 # Maximum poll interval (ms)
-  @batch_size 100          # Process up to 100 events per batch
-  @max_concurrency 20      # Max concurrent processing tasks (reduced from 50)
-  @max_queue_depth 1_000   # Alert threshold for queue depth
+  # Configuration - can be overridden in config.exs
+  @min_poll_interval Application.compile_env(:zapier_triggers, [__MODULE__, :min_poll_interval], 100)
+  @max_poll_interval Application.compile_env(:zapier_triggers, [__MODULE__, :max_poll_interval], 2_000)
+  @batch_size Application.compile_env(:zapier_triggers, [__MODULE__, :batch_size], 100)
+  @max_concurrency Application.compile_env(:zapier_triggers, [__MODULE__, :max_concurrency], 20)
+  @max_queue_depth Application.compile_env(:zapier_triggers, [__MODULE__, :max_queue_depth], 1_000)
+  @stuck_item_timeout Application.compile_env(:zapier_triggers, [__MODULE__, :stuck_item_timeout], 300_000) # 5 minutes
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{poll_interval: @min_poll_interval, empty_polls: 0}, name: __MODULE__)
@@ -30,9 +32,23 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
 
   @impl true
   def init(state) do
+    # Clean up any stuck "processing" items from previous crashes
+    cleanup_stuck_items()
+
     # Start polling immediately
     schedule_poll(state.poll_interval)
+
+    # Schedule periodic cleanup of stuck items (every 5 minutes)
+    schedule_cleanup()
+
     {:ok, state}
+  end
+
+  @impl true
+  def handle_info(:cleanup_stuck_items, state) do
+    cleanup_stuck_items()
+    schedule_cleanup()
+    {:noreply, state}
   end
 
   @impl true
@@ -82,8 +98,8 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
         )
       end
 
-      # Fetch and delete queued events atomically using SKIP LOCKED
-      # This prevents multiple workers from processing the same events
+      # TWO-PHASE APPROACH: Mark as processing, then delete only on success
+      # This prevents data loss if processing fails after queue item is removed
       result = Repo.transaction(fn ->
         from(q in EventQueue,
           where: q.status == "pending",
@@ -93,9 +109,11 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
         )
         |> Repo.all()
         |> Enum.map(fn queue_item ->
-          # Delete from queue
-          Repo.delete!(queue_item)
-          queue_item
+          # Mark as processing (not deleted yet!)
+          {:ok, updated_item} = queue_item
+            |> Ecto.Changeset.change(%{status: "processing"})
+            |> Repo.update()
+          updated_item
         end)
       end, timeout: 10_000)
 
@@ -105,19 +123,43 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
 
           # Process events in parallel with reduced concurrency
           results = queued_events
-            |> Task.async_stream(&process_single_event/1,
+            |> Task.async_stream(
+                fn item -> {item, process_single_event(item)} end,
                 max_concurrency: @max_concurrency,
                 timeout: 30_000,
                 on_timeout: :kill_task
               )
             |> Enum.to_list()
 
-          # Count successes and failures
-          successes = Enum.count(results, fn {status, _} -> status == :ok end)
-          failures = length(results) - successes
+          # Count successes, failures, and timeouts
+          stats = Enum.reduce(results, %{ok: 0, error: 0, timeout: 0}, fn
+            {:ok, {queue_item, {:ok, _result}}}, acc ->
+              # Success! Delete from queue
+              Repo.delete(queue_item)
+              %{acc | ok: acc.ok + 1}
 
-          if failures > 0 do
-            Logger.warning("Batch completed with #{successes} successes, #{failures} failures")
+            {:ok, {queue_item, {:error, _reason}}}, acc ->
+              # Error during processing - revert to pending for retry
+              queue_item
+              |> Ecto.Changeset.change(%{status: "pending"})
+              |> Repo.update()
+              %{acc | error: acc.error + 1}
+
+            {:exit, :timeout}, acc ->
+              Logger.error("Task timeout in event processing - event remains in processing state")
+              %{acc | timeout: acc.timeout + 1}
+          end)
+
+          if stats.error > 0 or stats.timeout > 0 do
+            Logger.warning("Batch completed: #{stats.ok} ok, #{stats.error} errors, #{stats.timeout} timeouts",
+              successes: stats.ok,
+              errors: stats.error,
+              timeouts: stats.timeout
+            )
+          end
+
+          if stats.timeout > 0 do
+            Logger.error("#{stats.timeout} tasks timed out - investigate performance or increase timeout")
           end
 
           {length(queued_events), state}
@@ -239,6 +281,38 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
         stacktrace: __STACKTRACE__
       )
       {:error, :unexpected_error}
+  end
+
+  defp schedule_cleanup do
+    # Schedule cleanup every 5 minutes
+    Process.send_after(self(), :cleanup_stuck_items, 300_000)
+  end
+
+  @doc """
+  Cleans up events stuck in "processing" status.
+  These are events that were being processed when the worker crashed.
+  Reverts them to "pending" so they can be retried.
+  """
+  def cleanup_stuck_items do
+    cutoff_time = DateTime.utc_now() |> DateTime.add(-@stuck_item_timeout, :millisecond)
+
+    {count, _} = from(q in EventQueue,
+      where: q.status == "processing" and q.inserted_at < ^cutoff_time
+    )
+    |> Repo.update_all(set: [status: "pending"])
+
+    if count > 0 do
+      Logger.warning("Cleaned up #{count} stuck queue items, reverted to pending",
+        count: count,
+        timeout_ms: @stuck_item_timeout
+      )
+    end
+
+    count
+  rescue
+    e ->
+      Logger.error("Failed to cleanup stuck items: #{inspect(e)}")
+      0
   end
 
 end

@@ -20,5 +20,9 @@ defmodule ZapierTriggers.Repo.Migrations.CreateEventQueue do
 
     # Index for organization queries
     create index(:event_queue, [:organization_id])
+
+    # Unique constraint on (organization_id, dedup_id) to catch duplicates at ingestion time
+    # This provides immediate deduplication feedback without waiting for background processing
+    create unique_index(:event_queue, [:organization_id, :dedup_id], where: "dedup_id IS NOT NULL")
   end
 end
