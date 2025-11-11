@@ -65,6 +65,37 @@ Client → API → Queue → Response (< 10ms)
   - Batch acknowledgment
   - Performance timing logged for every event
 
+#### E. Queue Backpressure Protection
+- **Location:** `src/zapier_triggers_api/routes/events.py`
+- **Features:**
+  - Monitors queue depth before accepting events
+  - Returns 503 (Service Unavailable) when queue is at 95% capacity
+  - Prevents silent event loss by rejecting instead of dropping
+  - Includes `Retry-After: 5` header for client retry logic
+  - Logs warnings when approaching capacity
+  - Graceful degradation under extreme load
+
+**Behavior:**
+- **Normal operation:** Queue < 95% capacity → 202 Accepted
+- **Overload protection:** Queue ≥ 95% capacity → 503 Service Unavailable
+
+**Example 503 Response:**
+```json
+{
+  "error": "event_processing_backlog",
+  "message": "System under high load, please retry",
+  "queue_depth": 95000,
+  "queue_capacity": 100000,
+  "retry_after_seconds": 5
+}
+```
+
+**Benefits:**
+- Prevents event loss (explicit rejection vs. silent drop)
+- Allows clients to implement retry logic
+- Maintains system stability under extreme load
+- Observable through monitoring (503 error counts)
+
 ## Configuration
 
 ### Environment Variables
@@ -72,6 +103,13 @@ Client → API → Queue → Response (< 10ms)
 ```bash
 # Worker concurrency (number of events processed in parallel)
 MAX_CONCURRENT_EVENTS=10
+
+# Redis stream limits (backpressure protection)
+REDIS_STREAM_MAX_LENGTH=100000  # Max events in queue before trimming
+
+# Database connection pool (auto-sized based on concurrency)
+DB_POOL_SIZE=30  # Default: MAX_CONCURRENT_EVENTS * 2 + 10
+DB_POOL_MAX_OVERFLOW=20
 
 # Webhook timeout (seconds)
 WEBHOOK_TIMEOUT=10
@@ -82,6 +120,12 @@ DISABLE_WEBHOOK_DELIVERY=false
 # Performance monitoring
 PROMETHEUS_ENABLED=true
 ```
+
+**Backpressure Configuration:**
+- Threshold: 95% of `REDIS_STREAM_MAX_LENGTH`
+- Default: 95,000 events (95% of 100,000)
+- Returns 503 when queue depth exceeds threshold
+- Automatically rejects new events to prevent overload
 
 ### Scaling Options
 
@@ -338,6 +382,73 @@ engine = create_async_engine(
 )
 ```
 
+### Receiving 503 Backpressure Errors
+
+If clients receive 503 Service Unavailable responses:
+
+**Diagnosis:**
+1. Check queue depth:
+   ```bash
+   redis-cli XLEN zapier:events
+   ```
+2. Check detailed health:
+   ```bash
+   curl http://localhost:8000/api/health/detailed
+   ```
+
+**Causes:**
+- Queue at 95% capacity (95,000 of 100,000 events)
+- Worker processing slower than event ingestion rate
+- Webhook deliveries taking too long (blocking workers)
+- Insufficient worker instances
+
+**Solutions:**
+1. **Increase worker concurrency:**
+   ```bash
+   export MAX_CONCURRENT_EVENTS=20
+   systemctl restart zapier-worker
+   ```
+
+2. **Add more worker instances:**
+   ```bash
+   # Run additional workers for horizontal scaling
+   python -m zapier_triggers_api.worker
+   ```
+
+3. **Increase queue capacity (temporary):**
+   ```bash
+   export REDIS_STREAM_MAX_LENGTH=200000
+   systemctl restart zapier-api
+   ```
+
+4. **Check webhook delivery performance:**
+   ```bash
+   # Monitor webhook queue
+   redis-cli XLEN zapier:webhook-deliveries
+
+   # If webhook queue is growing, webhooks are slow
+   # Consider:
+   # - Increasing webhook timeout
+   # - Disabling webhooks temporarily: DISABLE_WEBHOOK_DELIVERY=true
+   # - Running more webhook worker instances
+   ```
+
+5. **Implement client retry logic:**
+   ```python
+   # Client should respect Retry-After header
+   response = requests.post(url, json=event)
+   if response.status_code == 503:
+       retry_after = int(response.headers.get('Retry-After', 5))
+       time.sleep(retry_after)
+       # Retry request
+   ```
+
+**Prevention:**
+- Monitor queue depth via `/api/health/detailed`
+- Set up alerts when queue > 80% capacity
+- Scale workers proactively before hitting 95% threshold
+- Use rate limiting to prevent burst overload
+
 ## Summary
 
 The performance optimizations achieve:
@@ -348,5 +459,6 @@ The performance optimizations achieve:
 ✅ **Horizontal scalability** - multiple workers supported
 ✅ **Real-time monitoring** - performance tracking and logging
 ✅ **High throughput** (> 100 events/sec) - concurrent processing
+✅ **Backpressure protection** - graceful degradation under extreme load
 
 All while maintaining security, reliability, and data integrity.

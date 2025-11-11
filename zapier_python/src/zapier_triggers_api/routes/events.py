@@ -1,6 +1,7 @@
 """Event ingestion endpoints."""
 
 import json
+import logging
 from datetime import datetime
 from typing import Annotated
 from uuid import uuid4
@@ -16,6 +17,8 @@ from zapier_triggers_api.models import DeliveryStatus, Event, EventDelivery, Org
 from zapier_triggers_api.rate_limit import check_rate_limit
 from zapier_triggers_api.redis_client import get_redis
 from zapier_triggers_api.schemas import EventAcceptedResponse, EventCreate, EventResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -64,7 +67,14 @@ async def create_event(
     This endpoint accepts events and queues them for background processing.
     The event will be persisted, deduplicated, and delivered asynchronously.
 
-    Returns 202 Accepted with event ID immediately.
+    Backpressure Protection:
+    - Returns 503 if queue is at 95% capacity
+    - Prevents event loss by rejecting instead of dropping
+    - Client should retry after 5 seconds
+
+    Returns:
+    - 202 Accepted with event ID (normal operation)
+    - 503 Service Unavailable (queue near capacity, retry required)
     """
     # Fast validation only - no blocking operations
 
@@ -79,10 +89,31 @@ async def create_event(
             detail="Payload exceeds 256KB limit",
         )
 
-    # 3. Generate event ID immediately
+    # 3. Check queue depth to prevent overload (backpressure protection)
+    stream_len = await redis.xlen(settings.redis_stream_name)
+    queue_capacity_threshold = int(settings.redis_stream_max_length * 0.95)
+
+    if stream_len >= queue_capacity_threshold:
+        logger.warning(
+            f"Event queue near capacity: {stream_len}/{settings.redis_stream_max_length} "
+            f"(org: {org.id})"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "event_processing_backlog",
+                "message": "System under high load, please retry",
+                "queue_depth": stream_len,
+                "queue_capacity": settings.redis_stream_max_length,
+                "retry_after_seconds": 5,
+            },
+            headers={"Retry-After": "5"},
+        )
+
+    # 4. Generate event ID immediately
     event_id = uuid4()
 
-    # 4. Queue to Redis Streams for async processing (~1-2ms)
+    # 5. Queue to Redis Streams for async processing (~1-2ms)
     # Worker will handle: deduplication, persistence, delivery
     await queue_event_for_processing(
         event_id=str(event_id),
@@ -93,7 +124,7 @@ async def create_event(
         redis=redis,
     )
 
-    # 5. Return immediately (total time: ~5-10ms)
+    # 6. Return immediately (total time: ~5-10ms)
     return EventAcceptedResponse(
         id=event_id,
         status="accepted",
