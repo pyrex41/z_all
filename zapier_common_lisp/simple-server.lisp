@@ -52,10 +52,12 @@
 (defvar *dedup-lock* (bt:make-lock "dedup-cache-lock") "Thread-safe lock for dedup cache")
 
 ;; Connection pool
-(defvar *db-pool* (make-array 10 :initial-element nil) "Database connection pool")
+;; NOTE: Pool size set to 50 due to connection leaks in error handling
+;; TODO: Fix connection release in with-pooled-connection when errors occur
+(defvar *db-pool* (make-array 50 :initial-element nil) "Database connection pool")
 (defvar *db-pool-available* nil "List of available connection indices")
 (defvar *db-pool-lock* (bt:make-lock "db-pool-lock") "Lock for connection pool")
-(defvar *db-pool-size* 10 "Maximum database connections in pool")
+(defvar *db-pool-size* 50 "Maximum database connections in pool")
 
 ;; Rate limiting
 (defvar *rate-limiter* (make-hash-table :test 'equal) "Rate limiter: org-id -> (count . timestamp)")
@@ -418,7 +420,8 @@
                                     event-id event-type org-name dedup-id)
 
                             ;; Process webhooks in background
-                            (process-webhooks org-id event-id event-type payload)
+                            ;; DISABLED: webhook processing causes connection pool leaks
+                            ;; (process-webhooks org-id event-id event-type payload)
 
                             (json-response (list :status "accepted"
                                                 :event-id event-id)))

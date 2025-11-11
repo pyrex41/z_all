@@ -16,7 +16,7 @@
 (ql:quickload :drakma :silent t)
 
 ;; Load the simple server
-(load "simple-server.lisp")
+(load "/Users/reuben/gauntlet/zapier/zapier_common_lisp/simple-server.lisp")
 
 ;; Start the server
 (format t "~%~%========================================~%")

@@ -146,7 +146,6 @@ async fn process_event(db: &PgPool, event: EventToProcess) -> Result<Uuid, anyho
             r#"
             INSERT INTO event_deliveries (event_id, status)
             VALUES ($1, 'pending')
-            ON CONFLICT (event_id) DO NOTHING
             "#
         )
         .bind(&event_id)

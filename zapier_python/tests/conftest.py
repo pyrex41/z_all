@@ -113,11 +113,23 @@ async def test_org_data(test_session: AsyncSession) -> tuple[Organization, str]:
 @pytest.fixture(scope="function")
 def test_client(test_session: AsyncSession, test_redis: Redis) -> TestClient:
     """Create FastAPI test client with dependency overrides (synchronous)."""
-    from fastapi import FastAPI
+    import time
+    from fastapi import FastAPI, Request
+    from starlette.middleware.base import BaseHTTPMiddleware
     from zapier_triggers_api.routes import api_keys, events, health, inbox, webhooks
 
-    # Create a test app without the problematic middleware
+    # Create a test app
     test_app = FastAPI(title="Test API")
+
+    # Add simple timing middleware (compatible with TestClient)
+    @test_app.middleware("http")
+    async def add_timing_header(request: Request, call_next):
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
+        return response
+
     test_app.include_router(api_keys.router)
     test_app.include_router(health.router)
     test_app.include_router(events.router)
