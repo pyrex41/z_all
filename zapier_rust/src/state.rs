@@ -1,7 +1,6 @@
 use sqlx::PgPool;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use chrono::{DateTime, Utc};
 
 use crate::config::Config;
@@ -34,9 +33,9 @@ impl AppState {
     }
 }
 
-// Simple in-memory rate limiter
+// Lock-free concurrent rate limiter using DashMap
 pub struct RateLimiter {
-    limits: RwLock<HashMap<uuid::Uuid, RateLimitEntry>>,
+    limits: DashMap<uuid::Uuid, RateLimitEntry>,
 }
 
 struct RateLimitEntry {
@@ -47,18 +46,20 @@ struct RateLimitEntry {
 impl RateLimiter {
     pub fn new() -> Self {
         Self {
-            limits: RwLock::new(HashMap::new()),
+            limits: DashMap::new(),
         }
     }
 
-    pub async fn check(&self, org_id: &uuid::Uuid, limit: i32) -> Result<(), crate::error::ApiError> {
-        let mut limits = self.limits.write().await;
+    pub fn check(&self, org_id: &uuid::Uuid, limit: i32) -> Result<(), crate::error::ApiError> {
         let now = Utc::now();
 
-        let entry = limits.entry(*org_id).or_insert(RateLimitEntry {
-            count: 0,
-            window_start: now,
-        });
+        // OPTIMIZED: Single atomic entry operation (no double lookup!)
+        let mut entry = self.limits
+            .entry(*org_id)
+            .or_insert_with(|| RateLimitEntry {
+                count: 0,
+                window_start: now,
+            });
 
         // Reset window if more than 1 minute has passed
         if (now - entry.window_start).num_seconds() >= 60 {
@@ -66,6 +67,7 @@ impl RateLimiter {
             entry.window_start = now;
         }
 
+        // Check and increment in one operation (still holding the lock)
         if entry.count >= limit as u32 {
             return Err(crate::error::ApiError::RateLimitExceeded);
         }

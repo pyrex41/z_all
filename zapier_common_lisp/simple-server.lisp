@@ -52,12 +52,10 @@
 (defvar *dedup-lock* (bt:make-lock "dedup-cache-lock") "Thread-safe lock for dedup cache")
 
 ;; Connection pool
-;; NOTE: Pool size set to 50 due to connection leaks in error handling
-;; TODO: Fix connection release in with-pooled-connection when errors occur
-(defvar *db-pool* (make-array 50 :initial-element nil) "Database connection pool")
+(defvar *db-pool* (make-array 20 :initial-element nil) "Database connection pool")
 (defvar *db-pool-available* nil "List of available connection indices")
 (defvar *db-pool-lock* (bt:make-lock "db-pool-lock") "Lock for connection pool")
-(defvar *db-pool-size* 50 "Maximum database connections in pool")
+(defvar *db-pool-size* 20 "Maximum database connections in pool")
 
 ;; Rate limiting
 (defvar *rate-limiter* (make-hash-table :test 'equal) "Rate limiter: org-id -> (count . timestamp)")
@@ -219,47 +217,79 @@
 ;; Database queries (using connection pool)
 (defun db-create-organization (org-name api-key tier)
   "Create organization in database and return org-id"
-  (with-pooled-connection (conn)
-    (pomo:query
-     "INSERT INTO organizations (name, api_key, tier, created_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING id"
-     org-name api-key tier
-     :single)))
+  (let ((conn (pomo:connect (get-config "db-name")
+                            (get-config "db-user")
+                            (get-config "db-pass")
+                            (get-config "db-host")
+                            :port (get-config "db-port")
+                            :pooled-p nil)))
+    (unwind-protect
+        (let ((pomo:*database* conn))
+          (pomo:query
+           "INSERT INTO organizations (name, api_key, tier, created_at)
+            VALUES ($1, $2, $3, NOW())
+            RETURNING id"
+           org-name api-key tier
+           :single))
+      (pomo:disconnect conn))))
 
 (defun db-validate-api-key (api-key)
   "Validate API key against database. Returns (id name tier) or NIL"
-  (with-pooled-connection (conn)
-    (pomo:query
-     "SELECT id, name, tier FROM organizations WHERE api_key = $1"
-     api-key
-     :row)))
+  (let ((conn (pomo:connect (get-config "db-name")
+                            (get-config "db-user")
+                            (get-config "db-pass")
+                            (get-config "db-host")
+                            :port (get-config "db-port")
+                            :pooled-p nil)))
+    (unwind-protect
+        (let ((pomo:*database* conn))
+          (pomo:query
+           "SELECT id, name, tier FROM organizations WHERE api_key = $1"
+           api-key
+           :row))
+      (pomo:disconnect conn))))
 
 (defun db-insert-event (event-id org-id event-type payload-json dedup-id)
   "Insert event into database. Returns event-id or signals duplicate error"
-  (handler-case
-      (with-pooled-connection (conn)
-        (pomo:query
-         "INSERT INTO events (id, organization_id, event_type, payload, dedup_id, status, created_at)
-          VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-          RETURNING id"
-         event-id org-id event-type payload-json dedup-id
-         :single))
-    (cl-postgres-error:unique-violation (e)
-      (format t "~&[DB] Duplicate event in database: ~a~%" dedup-id)
-      nil)))
+  (let ((conn (pomo:connect (get-config "db-name")
+                            (get-config "db-user")
+                            (get-config "db-pass")
+                            (get-config "db-host")
+                            :port (get-config "db-port")
+                            :pooled-p nil)))
+    (unwind-protect
+        (handler-case
+            (let ((pomo:*database* conn))
+              (pomo:query
+               "INSERT INTO events (id, organization_id, event_type, payload, dedup_id, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+                RETURNING id"
+               event-id org-id event-type payload-json dedup-id
+               :single))
+          (cl-postgres-error:unique-violation (e)
+            (format t "~&[DB] Duplicate event in database: ~a~%" dedup-id)
+            nil))
+      (pomo:disconnect conn))))
 
 (defun db-get-events (org-id &key (limit 100) (status "pending"))
   "Get events for organization from database"
-  (with-pooled-connection (conn)
-    (pomo:query
-     "SELECT id, event_type, payload, dedup_id, status, created_at
-      FROM events
-      WHERE organization_id = $1 AND status = $2
-      ORDER BY created_at DESC
-      LIMIT $3"
-     org-id status limit
-     :rows)))
+  (let ((conn (pomo:connect (get-config "db-name")
+                            (get-config "db-user")
+                            (get-config "db-pass")
+                            (get-config "db-host")
+                            :port (get-config "db-port")
+                            :pooled-p nil)))
+    (unwind-protect
+        (let ((pomo:*database* conn))
+          (pomo:query
+           "SELECT id, event_type, payload, dedup_id, status, created_at
+            FROM events
+            WHERE organization_id = $1 AND status = $2
+            ORDER BY created_at DESC
+            LIMIT $3"
+           org-id status limit
+           :rows))
+      (pomo:disconnect conn))))
 
 (defun db-get-webhooks (org-id)
   "Get active webhooks for organization"
@@ -336,7 +366,7 @@
       (let* ((body (get-json-body))
              (org-name (gethash "organization_name" body))
              (tier (or (gethash "tier" body) "free"))
-             (api-key (format nil "sk_~a" (uuid:make-v4-uuid))))
+             (api-key (format nil "zap_~a" (uuid:make-v4-uuid))))
 
         ;; Store in database (with in-memory fallback for compatibility)
         (let ((org-id (db-create-organization org-name api-key tier)))

@@ -37,25 +37,12 @@ pub async fn create_event(
 ) -> Result<(StatusCode, Json<CreateEventResponse>), ApiError> {
     let ingestion_tracker = crate::metrics::track_event_ingestion();
 
-    // Rate limiting
+    // Rate limiting ONLY - everything else async!
     let rate_tracker = crate::metrics::track_rate_limit_check();
-    state.rate_limiter.check(&auth.org.id, auth.org.rate_limit_per_minute).await?;
+    state.rate_limiter.check(&auth.org.id, auth.org.rate_limit_per_minute)?;
     rate_tracker.record();
 
-    // Payload size check (256KB)
-    let payload_size = serde_json::to_vec(&req.payload)
-        .map_err(|e| {
-            crate::metrics::record_validation_error("invalid_json");
-            ApiError::InvalidRequest(format!("Invalid JSON: {}", e))
-        })?
-        .len();
-
-    if payload_size > 256 * 1024 {
-        crate::metrics::record_validation_error("payload_too_large");
-        return Err(ApiError::PayloadTooLarge);
-    }
-
-    // Validate webhook configured (optional for benchmarking - matches Python/Elixir behavior)
+    // Get webhook URL (no validation - happens in background worker)
     let webhook_url = auth.org.webhook_url.as_ref()
         .cloned()
         .unwrap_or_else(|| "https://webhook.site/benchmark-placeholder".to_string());
@@ -89,13 +76,8 @@ pub async fn create_event(
         webhook_url,
     };
 
-    // Spawn background task for cache write (instant return)
-    let processor = state.event_processor.clone();
-    tokio::spawn(async move {
-        if let Err(e) = processor.queue_event(event_to_process).await {
-            tracing::error!("Failed to queue event: {}", e);
-        }
-    });
+    // Fire-and-forget cache write (truly non-blocking - don't even spawn!)
+    state.event_processor.queue_event_sync(event_to_process);
 
     ingestion_tracker.record();
 

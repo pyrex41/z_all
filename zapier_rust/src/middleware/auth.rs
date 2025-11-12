@@ -5,9 +5,19 @@ use axum::{
 };
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::SaltString;
+use dashmap::DashMap;
+use std::sync::OnceLock;
 
 use crate::{error::ApiError, models::Organization, state::AppState};
 use std::sync::Arc;
+
+// PERFORMANCE OPTIMIZATION: Cache hashed API keys to avoid expensive Argon2 on every request
+// Since API keys rarely change, this cache can be huge and long-lived
+static HASH_CACHE: OnceLock<DashMap<String, String>> = OnceLock::new();
+
+fn get_hash_cache() -> &'static DashMap<String, String> {
+    HASH_CACHE.get_or_init(|| DashMap::with_capacity(10_000))
+}
 
 pub struct AuthenticatedOrg {
     pub org: Organization,
@@ -32,16 +42,26 @@ where
             .and_then(|v| v.to_str().ok())
             .ok_or(ApiError::Unauthorized)?;
 
-        // Hash the provided API key
-        let hashed_key = hash_api_key(api_key, &state.config.api_key_salt)?;
-
-        // Try cache first
-        if let Some(org) = state.auth_cache.get(&hashed_key).await {
+        // ULTRA-FAST PATH: Check if we have this API key cached (skips ALL hashing!)
+        // Cache key is the plaintext API key (safe since cache is in-memory only)
+        if let Some(org) = state.auth_cache.get_by_api_key(api_key).await {
             auth_tracker.record();
             return Ok(AuthenticatedOrg { org });
         }
 
-        // Cache miss - fetch from database
+        // Cache miss - need to hash and check database
+        // OPTIMIZATION: Check hash cache first (avoids expensive Argon2 on repeat misses)
+        let hash_cache = get_hash_cache();
+        let hashed_key = if let Some(cached_hash) = hash_cache.get(api_key) {
+            cached_hash.value().clone()
+        } else {
+            // Hash cache miss - compute hash and store for next time
+            let computed_hash = hash_api_key(api_key, &state.config.api_key_salt)?;
+            hash_cache.insert(api_key.to_string(), computed_hash.clone());
+            computed_hash
+        };
+
+        // Fetch from database
         let org = sqlx::query_as::<_, Organization>(
             "SELECT * FROM organizations WHERE api_key_hash = $1"
         )
@@ -50,8 +70,8 @@ where
         .await?
         .ok_or(ApiError::Unauthorized)?;
 
-        // Store in cache for future requests
-        state.auth_cache.set(hashed_key, org.clone()).await;
+        // Store in cache with both the hashed key AND the plaintext key for fast lookup
+        state.auth_cache.set_with_api_key(api_key.to_string(), org.clone()).await;
 
         auth_tracker.record();
         Ok(AuthenticatedOrg { org })

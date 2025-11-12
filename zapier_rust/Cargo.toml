@@ -43,8 +43,8 @@ dotenvy = "0.15"
 bytes = "1.5"
 num_cpus = "1.16"
 
-# Cache (instant in-memory queue)
-moka = { version = "0.12", features = ["future"] }
+# Lock-free concurrent HashMap for rate limiting AND event queue
+dashmap = "5.5"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

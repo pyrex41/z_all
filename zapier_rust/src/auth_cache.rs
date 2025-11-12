@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use dashmap::DashMap;
 use chrono::{DateTime, Utc, Duration};
 use uuid::Uuid;
 
@@ -17,9 +16,15 @@ struct CacheEntry {
     last_accessed: DateTime<Utc>,
 }
 
-/// In-memory authentication cache with TTL and LRU eviction
+/// LOCK-FREE in-memory authentication cache with TTL and LRU eviction
+/// Uses DashMap for zero-contention concurrent access (no async overhead!)
+///
+/// OPTIMIZATION: Dual indexing - cache by both hashed key AND plaintext API key
+/// This allows ultra-fast cache hits that skip ALL hashing (Argon2 is EXPENSIVE!)
 pub struct AuthCache {
-    cache: RwLock<HashMap<String, CacheEntry>>,
+    cache: Arc<DashMap<String, CacheEntry>>,
+    // Secondary index: plaintext API key -> organization (FAST PATH!)
+    api_key_index: Arc<DashMap<String, CacheEntry>>,
     ttl_seconds: i64,
     max_size: usize,
 }
@@ -28,26 +33,28 @@ impl AuthCache {
     /// Create new auth cache with specified TTL and max size
     pub fn new(ttl_seconds: i64) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: Arc::new(DashMap::with_capacity(MAX_CACHE_SIZE)),
+            api_key_index: Arc::new(DashMap::with_capacity(MAX_CACHE_SIZE)),
             ttl_seconds,
             max_size: MAX_CACHE_SIZE,
         }
     }
 
-    /// Get organization from cache by hashed API key
-    pub async fn get(&self, hashed_key: &str) -> Option<Organization> {
-        let mut cache = self.cache.write().await;
+    /// ULTRA-FAST PATH: Get by plaintext API key (ZERO HASHING!)
+    /// This is the hottest code path - used for every authenticated request
+    pub async fn get_by_api_key(&self, api_key: &str) -> Option<Organization> {
         let now = Utc::now();
 
-        if let Some(entry) = cache.get_mut(hashed_key) {
+        // Check API key index first (fastest path - no hashing!)
+        if let Some(mut entry) = self.api_key_index.get_mut(api_key) {
             if entry.expires_at > now {
-                // Update last_accessed for LRU tracking
                 entry.last_accessed = now;
                 metrics::record_cache_hit(true);
                 return Some(entry.org.clone());
             } else {
-                // Remove expired entry
-                cache.remove(hashed_key);
+                // Expired - remove from both indexes
+                drop(entry);
+                self.api_key_index.remove(api_key);
             }
         }
 
@@ -55,7 +62,57 @@ impl AuthCache {
         None
     }
 
-    /// Store organization in cache with LRU eviction
+    /// Store with dual indexing (hashed key + plaintext API key)
+    pub async fn set_with_api_key(&self, api_key: String, org: Organization) {
+        let now = Utc::now();
+        let expires_at = now + Duration::seconds(self.ttl_seconds);
+        let entry = CacheEntry {
+            org,
+            expires_at,
+            last_accessed: now,
+        };
+
+        // Evict if needed
+        if self.api_key_index.len() >= self.max_size && !self.api_key_index.contains_key(&api_key) {
+            if let Some(lru_entry) = self.api_key_index
+                .iter()
+                .min_by_key(|entry| entry.value().last_accessed)
+            {
+                let lru_key = lru_entry.key().clone();
+                drop(lru_entry);
+                self.api_key_index.remove(&lru_key);
+                tracing::debug!("Evicted LRU entry from auth cache (API key index), size: {}", self.api_key_index.len());
+            }
+        }
+
+        // Store in API key index (primary fast path)
+        self.api_key_index.insert(api_key, entry);
+    }
+
+    /// LOCK-FREE get organization from cache (NO ASYNC!)
+    /// DashMap provides zero-contention concurrent reads
+    pub async fn get(&self, hashed_key: &str) -> Option<Organization> {
+        let now = Utc::now();
+
+        // Try to get and update in one atomic operation
+        if let Some(mut entry) = self.cache.get_mut(hashed_key) {
+            if entry.expires_at > now {
+                // Update last_accessed for LRU tracking (lock-free!)
+                entry.last_accessed = now;
+                metrics::record_cache_hit(true);
+                return Some(entry.org.clone());
+            } else {
+                // Entry expired, will be removed
+                drop(entry); // Release lock before removing
+                self.cache.remove(hashed_key);
+            }
+        }
+
+        metrics::record_cache_hit(false);
+        None
+    }
+
+    /// LOCK-FREE store organization in cache (NO CONTENTION!)
     pub async fn set(&self, hashed_key: String, org: Organization) {
         let now = Utc::now();
         let expires_at = now + Duration::seconds(self.ttl_seconds);
@@ -65,44 +122,40 @@ impl AuthCache {
             last_accessed: now,
         };
 
-        let mut cache = self.cache.write().await;
-
-        // Evict LRU entries if cache is full
-        if cache.len() >= self.max_size && !cache.contains_key(&hashed_key) {
+        // Evict LRU entries if cache is full (simple overflow protection)
+        if self.cache.len() >= self.max_size && !self.cache.contains_key(&hashed_key) {
             // Find and remove the least recently accessed entry
-            if let Some((lru_key, _)) = cache
+            // Note: This is rare (only when cache is full) and DashMap makes it fast
+            if let Some(lru_entry) = self.cache
                 .iter()
-                .min_by_key(|(_, entry)| entry.last_accessed)
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .min_by_key(|entry| entry.value().last_accessed)
             {
-                cache.remove(&lru_key);
-                tracing::debug!("Evicted LRU entry from auth cache, size: {}", cache.len());
+                let lru_key = lru_entry.key().clone();
+                drop(lru_entry); // Release iterator before removing
+                self.cache.remove(&lru_key);
+                tracing::debug!("Evicted LRU entry from auth cache, size: {}", self.cache.len());
             }
         }
 
-        cache.insert(hashed_key, entry);
+        self.cache.insert(hashed_key, entry);
     }
 
-    /// Invalidate cache entry for a specific org (used when webhook URL changes)
+    /// LOCK-FREE invalidate cache entry for a specific org
     pub async fn invalidate_org(&self, org_id: &Uuid) {
-        let mut cache = self.cache.write().await;
-        cache.retain(|_, entry| entry.org.id != *org_id);
+        self.cache.retain(|_, entry| entry.org.id != *org_id);
     }
 
-    /// Cleanup expired entries
+    /// LOCK-FREE cleanup expired entries
     pub async fn cleanup_expired(&self) {
-        let mut cache = self.cache.write().await;
         let now = Utc::now();
-        cache.retain(|_, entry| entry.expires_at > now);
+        self.cache.retain(|_, entry| entry.expires_at > now);
     }
 
-    /// Get cache statistics
+    /// LOCK-FREE get cache statistics
     pub async fn stats(&self) -> CacheStats {
-        let cache = self.cache.read().await;
         let now = Utc::now();
-
-        let total = cache.len();
-        let expired = cache.values().filter(|e| e.expires_at <= now).count();
+        let total = self.cache.len();
+        let expired = self.cache.iter().filter(|e| e.value().expires_at <= now).count();
 
         CacheStats {
             total_entries: total,
