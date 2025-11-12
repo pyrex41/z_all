@@ -152,205 +152,17 @@ sbcl --load start-simple-server.lisp
 # Visit: http://localhost:5001
 ```
 
-## Manual Benchmarking Guide
+## Testing & Benchmarking
 
-### Prerequisites
+**⚠️ Important**: All testing and benchmarking should be done through the **Unified Test Suite** to ensure consistent, apples-to-apples comparisons across implementations.
 
-1. **Start Database & Redis**
-```bash
-# PostgreSQL (required for all implementations)
-brew services start postgresql@14
+See the [Unified Test Suite](#unified-test-suite) section below for:
+- Running functional tests on individual implementations
+- Performance benchmarking with consistent methodology
+- Load testing with Locust
+- Side-by-side comparison reports
 
-# Redis (required for Python only)
-brew services start redis
-```
-
-2. **Setup Benchmark Organization**
-```bash
-# The benchmark API key: sk_0C9A265F-1A52-4AD9-A377-7E1903750D45
-# This key is already seeded in the database
-```
-
-### Benchmark Each Implementation
-
-#### 🐍 Python Benchmark
-
-```bash
-# Terminal 1: Start Python server
-cd zapier_python
-PYTHONPATH=src python -m uvicorn zapier_triggers_api.main:app --host 0.0.0.0 --port 8001
-
-# Terminal 2: Run benchmark
-python /tmp/bench_single.py http://localhost:8001 Python
-
-# Results: [Benchmark pending]
-```
-
-#### 💧 Elixir Benchmark
-
-```bash
-# Terminal 1: Start Elixir server
-cd zapier_elixir/zapier_triggers
-mix phx.server
-
-# Terminal 2: Run benchmark
-python /tmp/bench_single.py http://localhost:4000 Elixir
-
-# Results: [Benchmark pending]
-```
-
-#### 🦀 Rust Benchmark
-
-```bash
-# Terminal 1: Start Rust server
-cd zapier_rust
-cargo run --release
-
-# Terminal 2: Run benchmark
-python /tmp/bench_single.py http://localhost:8080 Rust
-
-# Results: [Benchmark pending]
-```
-
-#### 🎨 Common Lisp Benchmark
-
-```bash
-# Terminal 1: Start Common Lisp server
-cd zapier_common_lisp
-sbcl --load start-simple-server.lisp
-
-# Terminal 2: Run benchmark
-python /tmp/bench_single.py http://localhost:5001 "Common Lisp"
-
-# Results: [Benchmark pending]
-```
-
-### Understanding Results
-
-The benchmark script (`/tmp/bench_single.py`) performs:
-- **Warmup**: 100 requests to populate caches
-- **Test**: 2000 requests to measure performance
-- **Metrics**:
-  - **RPS**: Requests per second (throughput)
-  - **P50/P95/P99**: Latency percentiles
-  - **Average**: Mean response time
-
-### Performance Optimization Notes
-
-Both Python and Elixir implementations use **plaintext cache** optimization:
-- **Cache Key**: `auth:{api_key}` (plaintext API key)
-- **Cache Hit**: Direct Redis/ETS lookup, NO hashing
-- **Cache Miss**: Hash once, DB lookup, cache for 5min
-- **Result**: 99%+ cache hit rate = near-zero auth overhead
-
-### Troubleshooting
-
-**Python server won't start:**
-```bash
-# Check port availability
-lsof -ti:8001 | xargs kill -9
-PYTHONPATH=src python -m uvicorn zapier_triggers_api.main:app --host 0.0.0.0 --port 8001
-```
-
-**Elixir server won't start:**
-```bash
-# Check port availability
-lsof -ti:4000 | xargs kill -9
-cd zapier_elixir/zapier_triggers && mix phx.server
-```
-
-**Benchmark script not found:**
-```bash
-# Create benchmark script
-cat > /tmp/bench_single.py << 'EOF'
-#!/usr/bin/env python3
-import httpx
-import time
-import asyncio
-import statistics
-import sys
-
-API_KEY = "sk_0C9A265F-1A52-4AD9-A377-7E1903750D45"
-
-async def send_request(client, url, dedup_id):
-    start = time.perf_counter()
-    response = await client.post(
-        url,
-        headers={"X-API-Key": API_KEY},
-        json={
-            "type": "test.event",
-            "payload": {"test": "data"},
-            "dedup_id": f"bench-{dedup_id}"
-        },
-    )
-    latency = (time.perf_counter() - start) * 1000
-    return response.status_code, latency
-
-async def run_benchmark(name, url):
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        print(f"\n{'='*70}")
-        print(f"🚀 {name} Benchmark")
-        print(f"{'='*70}")
-
-        # Warmup
-        print("Warming up (100 requests)...")
-        for i in range(100):
-            try:
-                await send_request(client, url, i)
-            except:
-                pass
-
-        # Benchmark
-        print(f"Running benchmark (2000 requests)...")
-        latencies = []
-        start_time = time.perf_counter()
-
-        for i in range(2000):
-            try:
-                status, latency = await send_request(client, url, i + 100)
-                latencies.append(latency)
-            except Exception as e:
-                print(f"Error: {e}")
-                break
-
-            if (i + 1) % 500 == 0:
-                print(f"Progress: {i + 1}/2000")
-
-        duration = time.perf_counter() - start_time
-
-        if not latencies:
-            print("❌ No successful requests!")
-            return None
-
-        # Stats
-        latencies.sort()
-        p50 = latencies[len(latencies) // 2]
-        p95 = latencies[int(len(latencies) * 0.95)]
-        p99 = latencies[int(len(latencies) * 0.99)]
-        avg = statistics.mean(latencies)
-        rps = len(latencies) / duration
-
-        print(f"\n✅ {name} Results:")
-        print(f"  🚀 {rps:.0f} requests/second")
-        print(f"  📊 Average: {avg:.2f}ms")
-        print(f"  📈 P50: {p50:.2f}ms")
-        print(f"  📈 P95: {p95:.2f}ms")
-        print(f"  📈 P99: {p99:.2f}ms")
-        print(f"  ⏱️  Total time: {duration:.2f}s")
-        print("="*70)
-
-        return {"name": name, "rps": rps, "avg": avg, "p50": p50, "p95": p95, "p99": p99}
-
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python bench_single.py <url> <name>")
-        sys.exit(1)
-
-    result = asyncio.run(run_benchmark(sys.argv[2], sys.argv[1] + "/api/events"))
-EOF
-
-chmod +x /tmp/bench_single.py
-```
+Individual implementations may have their own benchmark scripts for development purposes, but official performance comparisons should use the unified suite.
 
 ## Unified Test Suite
 
@@ -367,31 +179,69 @@ uv sync
 
 ### Test Individual Implementation
 
-```bash
-# Test specific implementation by base URL
-./run_tests.sh --base-url http://localhost:8000  # Python
-./run_tests.sh --base-url http://localhost:4000  # Elixir
-./run_tests.sh --base-url http://localhost:8080  # Rust
-./run_tests.sh --base-url http://localhost:5001  # Common Lisp
+**Ensure the server is running first**, then run tests:
 
-# Test with specific test types
-./run_tests.sh --base-url http://localhost:5001 --type functional
-./run_tests.sh --base-url http://localhost:8080 --type performance
+```bash
+# Test specific implementation
+./run_tests.sh --impl python      # Python on localhost:8000
+./run_tests.sh --impl elixir      # Elixir on localhost:4000
+./run_tests.sh --impl rust        # Rust on localhost:8080
+./run_tests.sh --impl commonlisp  # Common Lisp on localhost:5001
+
+# Test with custom URLs
+./run_tests.sh --impl python --python-url http://localhost:8001
+./run_tests.sh --impl rust --rust-url http://localhost:8090
+
+# Run specific test types
+./run_tests.sh --impl python --type functional   # Functional tests only
+./run_tests.sh --impl rust --type performance    # Performance benchmark
+./run_tests.sh --impl elixir --type load         # Load testing (opens UI)
+```
+
+**Using pytest directly** (alternative):
+
+```bash
+# Functional tests
+uv run pytest tests/test_functional.py -v
+
+# With custom base URL
+TEST_PYTHON_BASE_URL=http://localhost:8001 uv run pytest tests/test_functional.py -v
 ```
 
 ### Run All Tests & Compare
 
+**Prerequisites**: Start all servers you want to test:
+
 ```bash
-# Ensure all servers are running first
-# Then run comprehensive comparison
-./run_tests.sh --type functional
+# Terminal 1: Python
+cd zapier_python && uv run uvicorn src.zapier_triggers_api.main:app --port 8000
 
-# Performance benchmarks across all implementations
-./run_tests.sh --type performance
+# Terminal 2: Elixir
+cd zapier_elixir/zapier_triggers && mix phx.server
 
-# Interactive load testing (opens web UI)
-./run_tests.sh --type load
-# Visit: http://localhost:8089
+# Terminal 3: Rust
+cd zapier_rust && cargo run --release
+
+# Terminal 4: Common Lisp
+cd zapier_common_lisp && sbcl --load start-simple-server.lisp
+```
+
+**Run tests across all implementations:**
+
+```bash
+cd unified_test_suite
+
+# Functional correctness tests (all implementations)
+./run_tests.sh --impl all --type functional
+
+# Performance benchmarks (all implementations)
+./run_tests.sh --impl all --type performance
+
+# Complete test suite (functional + performance)
+./run_tests.sh --impl all --type all
+
+# Interactive load testing (opens web UI at localhost:8089)
+./run_tests.sh --impl python --type load
 ```
 
 ### View Results
