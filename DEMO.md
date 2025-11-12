@@ -53,12 +53,19 @@ cd unified_test_suite
 python benchmark_single.py rust 2000 1
 ```
 
+**What it does:**
+- Generates API key automatically
+- Configures webhook
+- Sends 2000 requests with concurrency=1
+- Measures P50, P95, P99 latency
+
 **Expected Results:**
 ```
 P50:     ~0.74ms
 P95:     ~1.40ms  ⭐ BEST
 P99:     ~2.06ms
 Throughput: ~1,100 req/s
+Success:   100%
 ```
 
 **Step 3: Stop server**
@@ -73,24 +80,27 @@ Throughput: ~1,100 req/s
 **Step 1: Start Python server**
 ```bash
 cd zapier_python
-uv run uvicorn zapier_triggers_api.main:app --host 127.0.0.1 --port 8001
+uv run uvicorn zapier_triggers_api.main:app --host 127.0.0.1 --port 8000
 ```
 
-**Wait for:** `Uvicorn running on http://127.0.0.1:8001`
+**Wait for:** `Uvicorn running on http://127.0.0.1:8000`
 
 **Step 2: Verify server is responding**
 ```bash
-curl http://127.0.0.1:8001/health
+curl http://127.0.0.1:8000/health
 # Should return: {"status":"healthy"}
 ```
 
-**Step 3: Run benchmark (use simple script)**
+**Step 3: Run benchmark**
 ```bash
 cd unified_test_suite
-python /tmp/bench_single.py http://127.0.0.1:8001 Python
+python benchmark_single.py python 2000 1
 ```
 
-**Note:** The unified benchmark requires API key generation which may fail. Use the simple benchmark script instead.
+**What it does:**
+- Generates API key automatically
+- Sends 2000 requests with concurrency=1
+- Measures P50, P95, P99 latency
 
 **Expected Results:**
 ```
@@ -98,6 +108,7 @@ P50:     ~2.79ms
 P95:     ~3.88ms  ⭐ EXCELLENT
 P99:     ~5.45ms
 Throughput: ~340 req/s
+Success:   100%
 ```
 
 **Step 4: Stop server**
@@ -109,10 +120,12 @@ Throughput: ~340 req/s
 
 ### Demo 3: Common Lisp Implementation (Very Good - 6.90ms P95)
 
+**Note:** Common Lisp is not in the unified benchmark suite, so we'll use a direct approach.
+
 **Step 1: Start Common Lisp server**
 ```bash
 cd zapier_common_lisp
-timeout 10 sbcl --load "simple-server.lisp" &
+sbcl --load "simple-server.lisp" &
 ```
 
 **Wait for:** `Server started on port 5001`
@@ -123,18 +136,30 @@ curl http://127.0.0.1:5001/health
 # Should return: {"status":"healthy"}
 ```
 
-**Step 3: Run benchmark (use simple script)**
+**Step 3: Manual benchmark (simple test)**
 ```bash
-cd unified_test_suite
-python /tmp/bench_single.py http://127.0.0.1:5001 "Common-Lisp"
+# Test a few requests to see latency
+for i in {1..10}; do
+  time curl -X POST http://127.0.0.1:5001/api/events \
+    -H "X-API-Key: sk_0C9A265F-1A52-4AD9-A377-7E1903750D45" \
+    -H "Content-Type: application/json" \
+    -d '{"type":"test.event","payload":{"test":"data"},"dedup_id":"test-'$i'"}'
+done
 ```
 
 **Expected Results:**
-```
-P50:     ~4.01ms
-P95:     ~6.90ms  ⭐ VERY GOOD
-P99:     ~12.19ms
-Throughput: ~225 req/s
+- Response time: ~5-10ms per request
+- 202 Accepted status
+- Clean synchronous operation
+
+**Full Benchmark (optional):**
+If you want full metrics, you can use the benchmark from Session 9 logs or run:
+```bash
+# Use Apache Bench or similar tool
+ab -n 2000 -c 1 -H "X-API-Key: sk_0C9A265F-1A52-4AD9-A377-7E1903750D45" \
+   -T "application/json" \
+   -p /tmp/event.json \
+   http://127.0.0.1:5001/api/events
 ```
 
 **Step 4: Stop server**
@@ -153,19 +178,25 @@ cd zapier_elixir/zapier_triggers
 mix phx.server
 ```
 
-**Wait for:** `[info] Running ZapierTriggersWeb.Endpoint`
+**Wait for:** `[info] Running ZapierTriggersWeb.Endpoint` on http://localhost:4000
 
 **Step 2: Verify server is responding**
 ```bash
-curl http://127.0.0.1:4000/health
+curl http://127.0.0.1:4000/health/ready
 # Should return: {"status":"healthy"}
 ```
 
 **Step 3: Run benchmark**
 ```bash
 cd unified_test_suite
-python /tmp/bench_single.py http://127.0.0.1:4000 Elixir
+python benchmark_single.py elixir 2000 1
 ```
+
+**What it does:**
+- Generates API key automatically
+- Configures webhook
+- Sends 2000 requests with concurrency=1
+- Measures P50, P95, P99 latency
 
 **Expected Results:**
 ```
@@ -173,6 +204,7 @@ P50:     ~44ms
 P95:     ~52.97ms  ✅ MEETS PRD
 P99:     ~69ms
 Throughput: ~22 req/s
+Success:   100%
 ```
 
 **Why slower?** This is expected BEAM VM overhead (see PERFORMANCE_ANALYSIS_2025-11-12.md). Elixir optimizes for fault-tolerance over raw speed.
@@ -203,7 +235,7 @@ If you want to run all benchmarks back-to-back:
 
 ```bash
 #!/bin/bash
-# Full performance demo
+# Full performance demo using unified benchmark suite
 
 echo "=== Rust Benchmark ==="
 cd zapier_rust && cargo run --release &
@@ -214,30 +246,28 @@ kill $RUST_PID
 sleep 2
 
 echo "=== Python Benchmark ==="
-cd ../zapier_python && uv run uvicorn zapier_triggers_api.main:app --port 8001 &
+cd ../zapier_python && uv run uvicorn zapier_triggers_api.main:app --port 8000 &
 PYTHON_PID=$!
 sleep 5
-cd ../unified_test_suite && python /tmp/bench_single.py http://127.0.0.1:8001 Python
+cd ../unified_test_suite && python benchmark_single.py python 2000 1
 kill $PYTHON_PID
-sleep 2
-
-echo "=== Common Lisp Benchmark ==="
-cd ../zapier_common_lisp && timeout 10 sbcl --load "simple-server.lisp" &
-LISP_PID=$!
-sleep 5
-cd ../unified_test_suite && python /tmp/bench_single.py http://127.0.0.1:5001 "Common-Lisp"
-pkill -f sbcl
 sleep 2
 
 echo "=== Elixir Benchmark ==="
 cd ../zapier_elixir/zapier_triggers && mix phx.server &
 ELIXIR_PID=$!
 sleep 10
-cd ../../unified_test_suite && python /tmp/bench_single.py http://127.0.0.1:4000 Elixir
+cd ../../unified_test_suite && python benchmark_single.py elixir 2000 1
 kill $ELIXIR_PID
+sleep 2
+
+echo "=== Common Lisp Quick Test ==="
+echo "(Common Lisp not in unified benchmark - see Demo 3 for manual testing)"
 
 echo "=== Demo Complete ==="
 ```
+
+**Note:** This script runs Rust, Python, and Elixir using the unified benchmark suite. Common Lisp requires manual testing (see Demo 3).
 
 ---
 
@@ -279,98 +309,12 @@ For comprehensive performance analysis and architectural trade-offs, see:
 
 ## 🐛 Troubleshooting
 
-**Issue: Benchmark script not found**
-```bash
-# Create the simple benchmark script if missing
-cat > /tmp/bench_single.py << 'EOF'
-#!/usr/bin/env python3
-import httpx
-import time
-import asyncio
-import statistics
-import sys
-
-API_KEY = "sk_0C9A265F-1A52-4AD9-A377-7E1903750D45"
-
-async def send_request(client, url, dedup_id):
-    start = time.perf_counter()
-    response = await client.post(
-        url,
-        headers={"X-API-Key": API_KEY},
-        json={
-            "type": "test.event",
-            "payload": {"test": "data"},
-            "dedup_id": f"bench-{dedup_id}"
-        },
-    )
-    latency = (time.perf_counter() - start) * 1000
-    return response.status_code, latency
-
-async def run_benchmark(name, url):
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        print(f"\n{'='*70}")
-        print(f"🚀 {name} Benchmark")
-        print(f"{'='*70}")
-
-        # Warmup
-        print("Warming up (100 requests)...")
-        for i in range(100):
-            try:
-                await send_request(client, url, i)
-            except:
-                pass
-
-        # Benchmark
-        print(f"Running benchmark (2000 requests)...")
-        latencies = []
-        start_time = time.perf_counter()
-
-        for i in range(2000):
-            try:
-                status, latency = await send_request(client, url, i + 100)
-                latencies.append(latency)
-            except Exception as e:
-                print(f"Error: {e}")
-                break
-
-            if (i + 1) % 500 == 0:
-                print(f"Progress: {i + 1}/2000")
-
-        duration = time.perf_counter() - start_time
-
-        if not latencies:
-            print("❌ No successful requests!")
-            return None
-
-        # Stats
-        latencies.sort()
-        p50 = latencies[len(latencies) // 2]
-        p95 = latencies[int(len(latencies) * 0.95)]
-        p99 = latencies[int(len(latencies) * 0.99)]
-        avg = statistics.mean(latencies)
-        rps = len(latencies) / duration
-
-        print(f"\n✅ {name} Results:")
-        print(f"  🚀 {rps:.0f} requests/second")
-        print(f"  📊 Average: {avg:.2f}ms")
-        print(f"  📈 P50: {p50:.2f}ms")
-        print(f"  📈 P95: {p95:.2f}ms")
-        print(f"  📈 P99: {p99:.2f}ms")
-        print(f"  ⏱️  Total time: {duration:.2f}s")
-        print("="*70)
-
-        return {"name": name, "rps": rps, "avg": avg, "p50": p50, "p95": p95, "p99": p99}
-
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python bench_single.py <url> <name>")
-        sys.exit(1)
-
-    result = asyncio.run(run_benchmark(sys.argv[2], sys.argv[1] + "/api/events"))
-EOF
-
-chmod +x /tmp/bench_single.py
-```
+**Issue: Rust server shows webhook delivery errors**
+- These are expected and harmless for the demo
+- They don't affect event ingestion performance
+- The errors are from a background worker, not the API
+- See "Rust - Database Schema Mismatch" in current_progress.md
+- Safe to ignore during demo
 
 **Issue: Server won't start**
 - Check PostgreSQL is running: `psql -h localhost -U postgres -c "SELECT 1"`
