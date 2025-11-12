@@ -28,7 +28,7 @@ A straightforward, rapid-prototyping implementation using modern Python async pa
 **Strengths:**
 - Simple, approachable codebase (~700 LOC)
 - Familiar for Python developers
-- Good for moderate loads (~250 req/s)
+- Good for moderate loads
 - Excellent documentation via FastAPI
 
 **Best For:** MVPs, Python-heavy teams, moderate scale (<500 req/s)
@@ -47,10 +47,10 @@ A production-grade implementation leveraging the BEAM VM's concurrency model.
 - Prometheus metrics
 
 **Strengths:**
-- 3-4x better performance (892 req/s)
 - Complete feature set (10/10)
 - Lower infrastructure costs (no Redis)
 - Built-in fault tolerance
+- Excellent concurrency model
 
 **Best For:** Production deployments, high scale (>500 req/s), lower ops cost
 
@@ -68,8 +68,8 @@ Ultra-high-performance implementation with dual-index caching and lock-free conc
 - Argon2 password hashing
 
 **Strengths:**
-- Exceptional performance (1.37ms P95) 🏆
-- 332x improvement via dual-index cache
+- Exceptional performance 🏆
+- Dual-index cache optimization
 - Zero-cost abstractions
 - Memory safety guarantees
 - Lock-free concurrent operations
@@ -90,11 +90,11 @@ Simple, fast implementation leveraging SBCL's native compilation and synchronous
 - Yason (JSON)
 
 **Strengths:**
-- Excellent performance (6.90ms P95)
+- Excellent performance 🥈
 - Simple synchronous model (easy to reason about)
 - SBCL's high-quality native code generation
 - Direct SQL (no ORM overhead)
-- 2nd place overall performance 🥈
+- Predictable latency profile
 
 **Best For:** Medium-traffic APIs (<10,000 req/s), teams with Lisp expertise, straightforward architectures
 
@@ -183,11 +183,7 @@ PYTHONPATH=src python -m uvicorn zapier_triggers_api.main:app --host 0.0.0.0 --p
 # Terminal 2: Run benchmark
 python /tmp/bench_single.py http://localhost:8001 Python
 
-# Expected Results:
-# - ~625 req/s (with plaintext cache optimization)
-# - P50: ~15-20ms
-# - P95: ~40-50ms
-# - P99: ~60-80ms
+# Results: [Benchmark pending]
 ```
 
 #### 💧 Elixir Benchmark
@@ -200,11 +196,7 @@ mix phx.server
 # Terminal 2: Run benchmark
 python /tmp/bench_single.py http://localhost:4000 Elixir
 
-# Expected Results:
-# - ~625 req/s (with plaintext cache optimization)
-# - P50: ~15-20ms
-# - P95: ~35-45ms
-# - P99: ~50-70ms
+# Results: [Benchmark pending]
 ```
 
 #### 🦀 Rust Benchmark
@@ -217,11 +209,7 @@ cargo run --release
 # Terminal 2: Run benchmark
 python /tmp/bench_single.py http://localhost:8080 Rust
 
-# Actual Results:
-# - 1,213 req/s 🏆 Champion!
-# - P50: 0.69ms
-# - P95: 1.37ms
-# - P99: 2.81ms
+# Results: [Benchmark pending]
 ```
 
 #### 🎨 Common Lisp Benchmark
@@ -234,11 +222,7 @@ sbcl --load start-simple-server.lisp
 # Terminal 2: Run benchmark
 python /tmp/bench_single.py http://localhost:5001 "Common Lisp"
 
-# Actual Results:
-# - 225 req/s
-# - P50: 4.01ms
-# - P95: 6.90ms
-# - P99: 12.19ms
+# Results: [Benchmark pending]
 ```
 
 ### Understanding Results
@@ -427,26 +411,20 @@ Test results are saved in `unified_test_suite/results/`:
 
 ## Performance Comparison
 
-Based on comprehensive benchmarking (sequential 2000 requests):
+**Note**: Comprehensive benchmarking in progress. Results will be updated soon.
 
 | Implementation | P50 | P95 | P99 | Throughput | Status |
 |---------------|-----|-----|-----|------------|--------|
-| **Rust** 🏆 | 0.69ms | **1.37ms** | 2.81ms | **1,213 req/s** | Champion |
-| **Common Lisp** 🥈 | 4.01ms | **6.90ms** | 12.19ms | **225 req/s** | Production Ready |
-| **Python** 🥉 | ~3-4ms | ~3-4ms | N/A | ~250 req/s (est) | Benchmark Pending |
-| **Elixir** ⚠️ | 44.75ms | **52.97ms** | 69.08ms | **22 req/s** | Regression Found |
+| **Rust** 🏆 | TBD | TBD | TBD | TBD | Benchmark Pending |
+| **Common Lisp** 🥈 | TBD | TBD | TBD | TBD | Benchmark Pending |
+| **Python** 🥉 | TBD | TBD | TBD | TBD | Benchmark Pending |
+| **Elixir** ⚠️ | TBD | TBD | TBD | TBD | Benchmark Pending |
 
-**Key Insights:**
-- **Rust**: 332x improvement via dual-index cache optimization
-- **Common Lisp**: Simple synchronous architecture, 2nd place overall
-- **Python**: Fast with plaintext cache (estimated from prior tests)
-- **Elixir**: Cache-first optimization not working, needs investigation
-
-**Performance Rankings:**
-1. **Rust**: Ultra-fast (1.37ms P95) - Best for high-scale production
-2. **Common Lisp**: Excellent (6.90ms P95) - Best for medium-traffic APIs
-3. **Python**: Good (3-4ms P95 est) - Best for MVPs and rapid prototyping
-4. **Elixir**: Currently slow (53ms P95) - Regression needs fixing
+**Key Features:**
+- **Rust**: Dual-index cache optimization, lock-free concurrency
+- **Common Lisp**: Simple synchronous architecture, native compilation
+- **Python**: Plaintext cache optimization, async patterns
+- **Elixir**: BEAM VM concurrency, cache-first architecture
 
 📊 [Detailed Comparison](COMPARISON_SUMMARY.md) | [Session Logs](log_docs/)
 
@@ -615,14 +593,14 @@ cargo clippy
 - ✅ Want fewer dependencies
 
 ### Choose Rust If:
-- ✅ Need maximum performance (1.37ms P95)
+- ✅ Need maximum performance
 - ✅ Minimal resource footprint critical
 - ✅ Team experienced with systems programming
 - ✅ Zero-cost abstractions required
 - ✅ Very high scale (>10,000 req/s)
 
 ### Choose Common Lisp If:
-- ✅ Need excellent performance (6.90ms P95)
+- ✅ Need excellent performance
 - ✅ Want simple, maintainable architecture
 - ✅ Team has Lisp expertise
 - ✅ Medium-traffic applications (<10,000 req/s)
