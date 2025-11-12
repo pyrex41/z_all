@@ -42,10 +42,11 @@ async def get_current_org_cached(
 ) -> Organization:
     """Get current organization from API key with Redis caching.
 
-    Performance optimization:
-    - Cache hit: ~1ms (Redis lookup)
-    - Cache miss: ~5-10ms (DB query + Redis set)
+    Performance optimization (plaintext cache):
+    - Cache hit: ~1ms (Redis lookup, NO HASHING)
+    - Cache miss: ~5-10ms (Hash once + DB query + Redis set)
     - Reduces DB load by 99%+ for repeat requests
+    - CRITICAL: On cache hits, NO hashing happens at all!
     """
     if not api_key:
         raise HTTPException(
@@ -54,49 +55,36 @@ async def get_current_org_cached(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Extract prefix from API key
-    key_prefix = api_key[:12] if len(api_key) >= 12 else None
-    if not key_prefix:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key format",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    # Try cache first (Redis)
-    cache_key = f"org:prefix:{key_prefix}"
+    # Try cache first using plaintext API key (matches Elixir approach)
+    # This means cache hits have ZERO hashing overhead!
+    cache_key = f"auth:{api_key}"
     cached = await redis.get(cache_key)
 
     if cached:
-        # Cache hit! Parse and verify
+        # Cache hit! NO HASHING - instant lookup
         org_data = json.loads(cached)
-        if verify_api_key(api_key, org_data["api_key_hash"]):
-            # Reconstruct Organization object
-            return Organization(**org_data)
-        else:
-            # Cached org doesn't match this key, check DB
-            pass
+        return Organization(**org_data)
 
-    # Cache miss or verification failed - query database
+    # Cache miss - now we need to hash and check the database
+    # Query all organizations (will be optimized with prefix column later)
     from sqlmodel import select
 
-    result = await session.execute(
-        select(Organization).where(Organization.api_key_prefix == key_prefix)
-    )
+    result = await session.execute(select(Organization))
     orgs: list[Organization] = list(result.scalars().all())
 
+    # Hash once and verify against all orgs
     for org in orgs:
         if verify_api_key(api_key, org.api_key_hash):
-            # Cache the organization data
+            # Build minimal org dict for caching (compatible with Elixir schema)
+            # Elixir fields: id, name, api_key_hash, webhook_url, rate_limit_per_minute, tier, inserted_at, updated_at
             org_dict = {
                 "id": str(org.id),
                 "name": org.name,
                 "api_key_hash": org.api_key_hash,
-                "api_key_prefix": org.api_key_prefix,
                 "webhook_url": org.webhook_url,
-                "rate_limit": org.rate_limit,
-                "plan": org.plan,
-                "created_at": org.created_at.isoformat() if org.created_at else None,
+                "rate_limit_per_minute": org.rate_limit_per_minute,
+                "tier": org.tier,
+                "inserted_at": org.inserted_at.isoformat() if org.inserted_at else None,
                 "updated_at": org.updated_at.isoformat() if org.updated_at else None,
             }
             await redis.setex(cache_key, CACHE_TTL, json.dumps(org_dict))

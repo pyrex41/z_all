@@ -7,7 +7,7 @@ defmodule ZapierTriggers.Organizations.Organization do
 
   schema "organizations" do
     field :name, :string
-    field :api_key_hash, :string
+    field :api_key_hash, :string  # Database stores SHA-256 hashed API keys
     field :webhook_url, :string
     field :rate_limit_per_minute, :integer, default: 100
     field :tier, :string, default: "free"

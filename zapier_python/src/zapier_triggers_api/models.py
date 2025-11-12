@@ -27,18 +27,17 @@ class DeliveryStatus(str, Enum):
 
 
 class Organization(SQLModel, table=True):
-    """Organization with API access."""
+    """Organization with API access - matches Elixir schema."""
 
     __tablename__ = "organizations"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(max_length=255, index=True)
     api_key_hash: str = Field(max_length=255)
-    api_key_prefix: str | None = Field(default=None, max_length=12, index=True)
-    webhook_url: str = Field(max_length=2048)
-    rate_limit: int = Field(default=100)
-    plan: PlanTier = Field(default=PlanTier.FREE)
-    created_at: datetime = Field(default_factory=lambda: datetime.utcnow())
+    webhook_url: str | None = Field(default=None, max_length=2048)
+    rate_limit_per_minute: int = Field(default=100, alias="rate_limit_per_minute")
+    tier: str = Field(default="free", max_length=255)
+    inserted_at: datetime = Field(default_factory=lambda: datetime.utcnow())
     updated_at: datetime = Field(default_factory=lambda: datetime.utcnow())
 
 
