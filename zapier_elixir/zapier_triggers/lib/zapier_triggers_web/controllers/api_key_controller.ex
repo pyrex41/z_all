@@ -29,6 +29,7 @@ defmodule ZapierTriggersWeb.ApiKeyController do
         |> json(%{
           api_key: api_key,
           organization_id: organization.id,
+          organization_name: organization.name,
           tier: organization.tier,
           rate_limit_per_minute: Organization.get_rate_limit(organization),
           message: "Save this API key securely - it won't be shown again"

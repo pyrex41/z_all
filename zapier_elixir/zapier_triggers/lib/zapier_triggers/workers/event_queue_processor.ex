@@ -291,21 +291,30 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
     # but only one should be persisted. The DB unique constraint on dedup_id
     # is the source of truth.
 
-    # 1. Mark as seen in dedup cache (optimistic, 24-hour TTL)
-    if queue_item.dedup_id do
-      cache_key = "dedup:#{queue_item.organization_id}:#{queue_item.dedup_id}"
-      Cachex.put(:dedup_cache, cache_key, true, ttl: :timer.hours(24))
-    end
+    # 1. Validate payload size (256KB max) - moved from sync endpoint
+    payload_size = byte_size(Jason.encode!(queue_item.payload))
+    if payload_size > 256 * 1024 do
+      Logger.error("Event #{queue_item.id} exceeds 256KB payload limit",
+        event_id: queue_item.id,
+        payload_size: payload_size
+      )
+      {:error, :payload_too_large}
+    else
+      # 2. Mark as seen in dedup cache (optimistic, 24-hour TTL)
+      if queue_item.dedup_id do
+        cache_key = "dedup:#{queue_item.organization_id}:#{queue_item.dedup_id}"
+        Cachex.put(:dedup_cache, cache_key, true, ttl: :timer.hours(24))
+      end
 
-    # 2. Persist event to database with proper error handling
-    event_changeset = %Event{}
-      |> Event.changeset(%{
-        id: queue_item.id,
-        type: queue_item.type,
-        payload: queue_item.payload,
-        dedup_id: queue_item.dedup_id,
-        organization_id: queue_item.organization_id
-      })
+      # 3. Persist event to database with proper error handling
+      event_changeset = %Event{}
+        |> Event.changeset(%{
+          id: queue_item.id,
+          type: queue_item.type,
+          payload: queue_item.payload,
+          dedup_id: queue_item.dedup_id,
+          organization_id: queue_item.organization_id
+        })
 
     case Repo.insert(event_changeset) do
       {:ok, event} ->
@@ -367,6 +376,7 @@ defmodule ZapierTriggers.Workers.EventQueueProcessor do
           )
           {:error, :event_insert_failed}
         end
+    end
     end
   rescue
     e ->

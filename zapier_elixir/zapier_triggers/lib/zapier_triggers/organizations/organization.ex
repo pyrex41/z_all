@@ -33,7 +33,9 @@ defmodule ZapierTriggers.Organizations.Organization do
   """
   def generate_api_key do
     # Generate 32 random bytes (256 bits)
-    api_key = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    random_part = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    # Add prefix for consistency with other implementations
+    api_key = "zap_live_#{random_part}"
     api_key_hash = hash_api_key_fast(api_key)
 
     {api_key, api_key_hash}
