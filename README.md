@@ -370,31 +370,58 @@ chmod +x /tmp/bench_single.py
 
 ## Unified Test Suite
 
-Comprehensive testing framework for comparing all implementations:
+Comprehensive testing framework for comparing all implementations.
+
+### Quick Start
 
 ```bash
 cd unified_test_suite
 
 # Install dependencies
 uv sync
-
-# Run functional tests (correctness)
-./run_tests.sh --type functional
-
-# Run performance benchmarks
-./run_tests.sh --type performance
-
-# Interactive load testing
-./run_tests.sh --type load
-# Open: http://localhost:8089
 ```
 
+### Test Individual Implementation
+
+```bash
+# Test specific implementation by base URL
+./run_tests.sh --base-url http://localhost:8000  # Python
+./run_tests.sh --base-url http://localhost:4000  # Elixir
+./run_tests.sh --base-url http://localhost:8080  # Rust
+./run_tests.sh --base-url http://localhost:5001  # Common Lisp
+
+# Test with specific test types
+./run_tests.sh --base-url http://localhost:5001 --type functional
+./run_tests.sh --base-url http://localhost:8080 --type performance
+```
+
+### Run All Tests & Compare
+
+```bash
+# Ensure all servers are running first
+# Then run comprehensive comparison
+./run_tests.sh --type functional
+
+# Performance benchmarks across all implementations
+./run_tests.sh --type performance
+
+# Interactive load testing (opens web UI)
+./run_tests.sh --type load
+# Visit: http://localhost:8089
+```
+
+### View Results
+
+Test results are saved in `unified_test_suite/results/`:
+- `test_results_YYYYMMDD_HHMMSS.json` - Individual test results
+- `comparison_report_YYYYMMDD_HHMMSS.html` - Side-by-side comparison
+
 **Features:**
-- ✅ 15+ functional correctness tests
-- ✅ Performance benchmarking (throughput, latency)
+- ✅ 16 functional correctness tests
+- ✅ Performance benchmarking (throughput, latency, P50/P95/P99)
 - ✅ Load testing with Locust (interactive UI)
 - ✅ Realistic test data generation
-- ✅ Side-by-side comparison reports
+- ✅ Automatic side-by-side comparison reports
 
 📖 [Test Suite Documentation](unified_test_suite/README.md)
 
@@ -421,7 +448,7 @@ Based on comprehensive benchmarking (sequential 2000 requests):
 3. **Python**: Good (3-4ms P95 est) - Best for MVPs and rapid prototyping
 4. **Elixir**: Currently slow (53ms P95) - Regression needs fixing
 
-📊 [Full Comparison Report](COMPARISON_SUMMARY.md) | [Session Logs](log_docs/)
+📊 [Detailed Comparison](COMPARISON_SUMMARY.md) | [Session Logs](log_docs/)
 
 ## Feature Comparison
 
