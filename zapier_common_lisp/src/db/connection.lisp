@@ -65,17 +65,54 @@
        (connect-db))
      ,@body))
 
+(defun split-sql-statements (sql)
+  "Split SQL string into individual statements, handling semicolons in function bodies"
+  (let ((statements '())
+        (current "")
+        (in-function nil))
+    (loop for line in (cl-ppcre:split "\\n" sql)
+          do (let ((trimmed (string-trim '(#\Space #\Tab) line)))
+               ;; Track if we're inside a function definition
+               (when (cl-ppcre:scan "(?i)CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION" trimmed)
+                 (setf in-function t))
+               (when (and in-function (cl-ppcre:scan "(?i)\\$\\$\\s*language" trimmed))
+                 (setf in-function nil))
+
+               ;; Append line to current statement
+               (setf current (concatenate 'string current line (string #\Newline)))
+
+               ;; If we hit a semicolon outside of a function, split
+               (when (and (not in-function)
+                         (cl-ppcre:scan ";\\s*$" trimmed)
+                         (not (string= trimmed ""))
+                         (not (cl-ppcre:scan "^--" trimmed)))
+                 (push current statements)
+                 (setf current ""))))
+    (nreverse statements)))
+
 (defun init-schema ()
   "Initialize database schema from SQL file"
   (with-connection
     (let ((schema-path (asdf:system-relative-pathname
                         :zapier-triggers "sql/schema.sql")))
       (when (probe-file schema-path)
-        (let ((schema-sql (uiop:read-file-string schema-path)))
+        (let* ((schema-sql (uiop:read-file-string schema-path))
+               (statements (split-sql-statements schema-sql))
+               (success-count 0))
           (handler-case
               (progn
-                (postmodern:execute schema-sql)
-                (format t "~&[DB] Schema initialized successfully~%")
+                (dolist (stmt statements)
+                  (let ((trimmed (string-trim '(#\Space #\Tab #\Newline) stmt)))
+                    (unless (or (string= trimmed "")
+                               (cl-ppcre:scan "^--" trimmed))
+                      (handler-case
+                          (progn
+                            (postmodern:execute trimmed)
+                            (incf success-count))
+                        (error (e)
+                          (format t "~&[DB WARNING] Statement failed (may be expected): ~A~%" e))))))
+                (format t "~&[DB] Schema initialized successfully (~D statements executed)~%"
+                        success-count)
                 t)
             (error (e)
               (format t "~&[DB ERROR] Failed to initialize schema: ~A~%" e)

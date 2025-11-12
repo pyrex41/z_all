@@ -2,7 +2,13 @@
 
 > ⚠️ **Security Notice**: The default configuration uses PostgreSQL trust authentication for development convenience. **See [SECURITY.md](SECURITY.md) for production hardening requirements.**
 
-A high-performance event ingestion API built with **SBCL** and **Hunchentoot**, featuring connection pooling, rate limiting, and asynchronous webhook delivery.
+A high-performance event ingestion API built with **SBCL**, featuring connection pooling, rate limiting, and asynchronous webhook delivery.
+
+**Two implementations available:**
+- **Woo (async/event-driven)** - Clack-based, recommended for production (119 req/s POST events)
+- **Hunchentoot (thread-per-request)** - Simple and reliable (70 req/s POST events, 2,733 req/s GET /health)
+
+See [WOO_IMPLEMENTATION.md](WOO_IMPLEMENTATION.md) for details on the Clack/Woo implementation.
 
 ## 🚀 Performance Highlights
 
@@ -93,26 +99,41 @@ EOF
 
 ### Start the Server
 
+You can run either implementation:
+
+#### Option 1: Woo Server (Recommended - Async/Event-Driven)
+
 ```bash
 cd zapier_common_lisp
 
-# Load dependencies (first time only)
-sbcl --eval '(ql:quickload :hunchentoot)' \
-     --eval '(ql:quickload :postmodern)' \
-     --eval '(ql:quickload :yason)' \
-     --eval '(ql:quickload :drakma)' \
-     --eval '(ql:quickload :bordeaux-threads)' \
-     --quit
+# Start with default settings (4 workers)
+sbcl --load start-server.lisp
 
-# Start server
-sbcl --load simple-server.lisp \
-     --eval '(zapier-simple:start-server)' \
-     --eval '(sb-thread:join-thread (find-if (lambda (th) (search "hunchentoot" (sb-thread:thread-name th))) (sb-thread:list-all-threads)))'
+# Or explicitly specify Woo
+sbcl --load start-server.lisp woo
+
+# Or start with Hunchentoot backend via Clack
+sbcl --load start-server.lisp hunchentoot
 ```
 
 **Server starts on**: `http://localhost:5001`
 
-**Verify it's running**:
+#### Option 2: Hunchentoot Server (Simple - Thread-per-Request)
+
+```bash
+cd zapier_common_lisp
+
+# Start simple server
+sbcl --load start-simple-server.lisp
+
+# Or with custom port
+PORT=5002 sbcl --load start-simple-server.lisp
+```
+
+**Server starts on**: `http://localhost:5001` (or your custom PORT)
+
+#### Verify it's running
+
 ```bash
 curl http://localhost:5001/health
 # {"status":"ok","timestamp":"2025-11-11T..."}
