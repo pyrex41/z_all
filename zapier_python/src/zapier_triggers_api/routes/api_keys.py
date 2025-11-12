@@ -64,7 +64,8 @@ def generate_api_key() -> tuple[str, str, str]:
     """Generate a secure API key.
 
     Returns:
-        tuple: (prefix, full_api_key, hash)
+        tuple: (key_prefix_for_lookup, full_api_key, hash)
+            key_prefix_for_lookup: first 12 characters of the key for fast DB lookup
     """
     # Generate secure random bytes
     random_bytes = secrets.token_bytes(32)
@@ -72,13 +73,16 @@ def generate_api_key() -> tuple[str, str, str]:
 
     # Add prefix based on environment
     # TODO: Make this configurable via environment variable
-    prefix = "zap_test_"
-    api_key = f"{prefix}{encoded}"
+    env_prefix = "zap_test_"
+    api_key = f"{env_prefix}{encoded}"
+
+    # Store first 12 characters as lookup prefix (indexed in DB for fast auth)
+    key_prefix_for_lookup = api_key[:12]
 
     # Hash for storage
     api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
-    return prefix, api_key, api_key_hash
+    return key_prefix_for_lookup, api_key, api_key_hash
 
 
 def rate_limit_for_tier(tier: PlanTier) -> int:
@@ -110,6 +114,7 @@ async def generate_key(
     organization = Organization(
         name=request.organization_name,
         api_key_hash=api_key_hash,
+        api_key_prefix=prefix,
         webhook_url=None,  # Must be configured later
         rate_limit_per_minute=rate_limit_for_tier(request.tier),
         tier=request.tier.value,
@@ -146,6 +151,7 @@ async def rotate_key(
 
     # Update organization with new key
     org.api_key_hash = new_api_key_hash
+    org.api_key_prefix = prefix
     org.updated_at = datetime.utcnow()
 
     session.add(org)

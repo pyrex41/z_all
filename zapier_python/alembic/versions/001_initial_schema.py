@@ -26,6 +26,7 @@ def upgrade() -> None:
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4),
         sa.Column('name', sa.String(255), nullable=False, index=True),
         sa.Column('api_key_hash', sa.String(255), nullable=False),
+        sa.Column('api_key_prefix', sa.String(20), nullable=True, index=True),
         sa.Column('webhook_url', sa.String(2048), nullable=True),
         sa.Column('rate_limit_per_minute', sa.Integer(), nullable=False, server_default='100'),
         sa.Column('tier', sa.String(255), nullable=False, server_default='free'),

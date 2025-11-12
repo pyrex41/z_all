@@ -34,6 +34,7 @@ class Organization(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(max_length=255, index=True)
     api_key_hash: str = Field(max_length=255)
+    api_key_prefix: str | None = Field(default=None, max_length=20, index=True)
     webhook_url: str | None = Field(default=None, max_length=2048)
     rate_limit_per_minute: int = Field(default=100, alias="rate_limit_per_minute")
     tier: str = Field(default="free", max_length=255)

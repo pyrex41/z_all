@@ -110,11 +110,23 @@ async def create_event(
             headers={"Retry-After": "5"},
         )
 
-    # 4. Generate event ID immediately
+    # 4. Check for deduplication if dedup_id provided
+    if event_data.dedup_id:
+        # Check Redis cache first for fast dedup check
+        dedup_key = f"dedup:{event_data.dedup_id}"
+        if await redis.exists(dedup_key):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Event with this dedup_id already exists",
+            )
+        # Set dedup key with 24 hour expiry (events older than this can be duplicated)
+        await redis.setex(dedup_key, 86400, "1")
+
+    # 5. Generate event ID immediately
     event_id = uuid4()
 
-    # 5. Queue to Redis Streams for async processing (~1-2ms)
-    # Worker will handle: deduplication, persistence, delivery
+    # 6. Queue to Redis Streams for async processing (~1-2ms)
+    # Worker will handle: persistence, delivery
     await queue_event_for_processing(
         event_id=str(event_id),
         org_id=str(org.id),
@@ -124,7 +136,7 @@ async def create_event(
         redis=redis,
     )
 
-    # 6. Return immediately (total time: ~5-10ms)
+    # 7. Return immediately (total time: ~5-10ms)
     return EventAcceptedResponse(
         id=event_id,
         status="accepted",
