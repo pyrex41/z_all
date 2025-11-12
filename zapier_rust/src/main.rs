@@ -55,8 +55,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Migrations complete");
 
     // Initialize Prometheus metrics
-    metrics::init_metrics_exporter();
-    tracing::info!("Metrics exporter initialized");
+    metrics::init_metrics_exporter(config.metrics_port);
+    tracing::info!("Metrics exporter initialized on port {}", config.metrics_port);
 
     // Create event processor with worker pool
     let event_processor = event_processor::create_event_processor(pool.clone());

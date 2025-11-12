@@ -10,8 +10,12 @@ from zapier_triggers_api.models import Organization, PlanTier
 from zapier_triggers_api.redis_client import get_redis
 
 
-def get_rate_limit_for_plan(plan: PlanTier) -> int:
+def get_rate_limit_for_plan(plan: str | PlanTier) -> int:
     """Get rate limit (requests per minute) for plan tier."""
+    # Convert string to enum if needed
+    if isinstance(plan, str):
+        plan = PlanTier(plan)
+
     limits = {
         PlanTier.FREE: settings.rate_limit_free,
         PlanTier.PRO: settings.rate_limit_pro,
@@ -26,7 +30,7 @@ async def check_rate_limit(
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> None:
     """Check if organization is within rate limit."""
-    rate_limit = get_rate_limit_for_plan(org.plan)
+    rate_limit = get_rate_limit_for_plan(org.tier)
     key = f"rate_limit:{org.id}"
 
     # Increment counter

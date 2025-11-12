@@ -27,6 +27,9 @@ pub struct Config {
 
     #[serde(default = "default_disable_webhook_delivery")]
     pub disable_webhook_delivery: bool,
+
+    #[serde(default = "default_metrics_port")]
+    pub metrics_port: u16,
 }
 
 fn default_database_url() -> String {
@@ -68,6 +71,13 @@ fn default_disable_webhook_delivery() -> bool {
         .unwrap_or(false)
 }
 
+fn default_metrics_port() -> u16 {
+    std::env::var("METRICS_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(9091)  // Use 9091 instead of 9090 to avoid conflicts
+}
+
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
@@ -81,6 +91,7 @@ impl Config {
             max_db_connections: default_max_connections(),
             delivery_worker_count: default_worker_count(),
             disable_webhook_delivery: default_disable_webhook_delivery(),
+            metrics_port: default_metrics_port(),
         })
     }
 }

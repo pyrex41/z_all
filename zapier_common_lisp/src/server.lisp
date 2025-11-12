@@ -87,16 +87,16 @@
 
 (defun build-app ()
   "Build application with middleware stack"
-  (lack:builder
-   ;; Error handler (outermost)
-   :accesslog
-   (zapier-triggers.middleware:error-handler-middleware
+  (let ((app (setup-routes)))
+    ;; Wrap with middleware in order (innermost to outermost)
+    ;; Rate limiting (innermost, closest to routes)
+    (setf app (funcall #'zapier-triggers.middleware:rate-limit-middleware app))
     ;; Authentication
-    (zapier-triggers.middleware:auth-middleware
-     ;; Rate limiting
-     (zapier-triggers.middleware:rate-limit-middleware
-      ;; Routes (innermost)
-      (setup-routes))))))
+    (setf app (funcall #'zapier-triggers.middleware:auth-middleware app))
+    ;; Error handler (outermost)
+    (setf app (funcall #'zapier-triggers.middleware:error-handler-middleware app))
+    ;; Return the fully wrapped app
+    app))
 
 (defun start-server (&key (port 5000) (worker-num 4) (debug nil) (server :woo))
   "Start HTTP server using Clack interface

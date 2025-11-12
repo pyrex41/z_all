@@ -78,9 +78,11 @@ pub fn record_event_processing_failure(error_type: &str) {
 }
 
 /// Initialize Prometheus metrics exporter
-pub fn init_metrics_exporter() {
+pub fn init_metrics_exporter(port: u16) {
+    let addr: std::net::SocketAddr = ([0, 0, 0, 0], port).into();
     let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
     builder
+        .with_http_listener(addr)
         .install()
         .expect("failed to install Prometheus recorder");
 }
