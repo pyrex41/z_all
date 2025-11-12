@@ -59,11 +59,11 @@
       nil)))
 
 (defmacro with-connection (&body body)
-  "Execute body with database connection"
-  `(progn
-     (unless *db-connection-pool*
-       (connect-db))
-     ,@body))
+  "Execute body with database connection - creates per-thread connection for thread safety"
+  `(let* ((db-url (zapier-triggers.config:get-config :database-url))
+          (conn-params (parse-db-url db-url)))
+     (postmodern:with-connection conn-params
+       ,@body)))
 
 (defun split-sql-statements (sql)
   "Split SQL string into individual statements, handling semicolons in function/procedure bodies"

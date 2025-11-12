@@ -9,7 +9,8 @@
       "Bash(uv run python:*)",
       "Bash(psql:*)",
       "Bash(lsof:*)",
-      "Bash(timeout 10 sbcl:*)"
+      "Bash(timeout 10 sbcl:*)",
+      "Bash(xargs cat:*)"
     ],
     "deny": [],
     "ask": []

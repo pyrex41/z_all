@@ -1,0 +1,3995 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    ci.yml
+  FUNDING.yml
+benchmark/
+  go/
+    hello.go
+    run
+  hunchentoot/
+    run
+  node/
+    run
+  phusion-passenger/
+    run
+  racket/
+    hello.rkt
+    run
+    typed-hello.rkt
+  tornado/
+    run
+  unicorn/
+    app.ru
+    config.rb
+    nginx.conf
+    run
+  woo/
+    hello.ros
+    run
+  wookie/
+    run
+  run-benchmark
+images/
+  benchmark-multicore.png
+  benchmark.png
+src/
+  ev/
+    condition.lisp
+    event-loop.lisp
+    socket.lisp
+    tcp.lisp
+    util.lisp
+  llsocket/
+    cffi.lisp
+    grovel.lisp
+    package.lisp
+  syscall/
+    main.lisp
+    package.lisp
+    types.lisp
+  ev.lisp
+  queue.lisp
+  response.lisp
+  signal.lisp
+  specials.lisp
+  ssl.lisp
+  util.lisp
+  woo.lisp
+  worker.lisp
+t/
+  generate-certificates.sh
+  ipv6.lisp
+  woo.lisp
+.gitignore
+.travis.yml
+benchmark.md
+clack-handler-woo.asd
+LICENSE.txt
+README.md
+woo-test.asd
+woo.asd
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/workflows/ci.yml">
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: ${{ matrix.lisp }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lisp: [sbcl-bin]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies from APT
+        run: sudo apt-get install -y libev-dev gcc libc6-dev
+      - name: Generate server certificates
+        run: sh ./t/generate-certificates.sh
+      - name: Install Roswell
+        env:
+          LISP: ${{ matrix.lisp }}
+          ROSWELL_INSTALL_DIR: /usr
+        run: |
+          curl -L https://raw.githubusercontent.com/roswell/roswell/master/scripts/install-for-ci.sh | sh
+      - name: Install Ultralisp
+        run: ros -e '(ql-dist:install-dist "http://dist.ultralisp.org/" :prompt nil)'
+      - name: Install Rove
+        run: ros install rove
+      - name: Run tests
+        env:
+          LISP: ${{ matrix.lisp }}
+        run: |
+          PATH="~/.roswell/bin:$PATH"
+          rove woo-test.asd
+</file>
+
+<file path=".github/FUNDING.yml">
+github: [fukamachi]
+</file>
+
+<file path="benchmark/go/hello.go">
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"runtime"
+	"flag"
+)
+
+func hello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hello, World")
+}
+
+func main() {
+	worker := flag.Int("worker", 1, "worker count")
+	flag.Parse()
+	runtime.GOMAXPROCS(*worker)
+
+	http.HandleFunc("/", hello)
+	http.ListenAndServe(":5000", nil)
+}
+</file>
+
+<file path="benchmark/go/run">
+#!/bin/sh
+
+BASEDIR=$(dirname $0)
+WORKER=${1:-1}
+
+go build -o "$BASEDIR/hello" "$BASEDIR/hello.go"
+exec "$BASEDIR/hello" --worker "$WORKER"
+</file>
+
+<file path="benchmark/hunchentoot/run">
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+;;
+;; http://localhost:5000/
+
+(ql:quickload :hunchentoot :silent t)
+
+(hunchentoot:define-easy-handler (say-hello :uri "/") ()
+  (setf (hunchentoot:content-type*) "text/plain")
+  "Hello, World")
+
+(defun main (&optional multi-threaded-p &rest argv)
+  (declare (ignore argv))
+  (hunchentoot:start (apply #'make-instance 'hunchentoot:easy-acceptor
+                            :port 5000
+                            :access-log-destination nil
+                            (if multi-threaded-p
+                                '()
+                                (list :taskmaster (make-instance 'hunchentoot:single-threaded-taskmaster)))))
+  (loop (sleep 60)))
+</file>
+
+<file path="benchmark/node/run">
+#!/usr/bin/env nodejs
+// https://github.com/jakubkulhan/hit-server-bench/blob/master/node/main.js
+//
+// http://localhost:5000/
+
+var cluster = require('cluster');
+var http = require('http');
+
+process.argv[process.argv.length - 1]
+var workerCount = parseInt(process.argv[process.argv.length - 1]);
+
+var handler = function (req, res) {
+  res.writeHead(200);
+  return res.end("Hello, World");
+}
+
+if (!isNaN(workerCount)) {
+    if (cluster.isMaster) {
+        for (var i = 0; i < workerCount; i++) {
+            cluster.fork();
+        }
+
+        cluster.on('exit', function(worker, code, signal) {
+            console.log('worker ' + worker.process.pid + ' died');
+        });
+    } else {
+        http.createServer(handler).listen(5000);
+    }
+}
+else {
+    http.createServer(handler).listen(5000);
+}
+</file>
+
+<file path="benchmark/phusion-passenger/run">
+#!/bin/sh
+
+BASEDIR=$(dirname $0)
+WORKER=${1:-1}
+exec passenger start -e production -R "$BASEDIR/../unicorn/app.ru" --max-pool-size "$WORKER" --min-instances "$WORKER"
+</file>
+
+<file path="benchmark/racket/hello.rkt">
+#lang racket/base
+
+(require
+ (only-in web-server/http
+          response/full)
+ (only-in web-server/http/request-structs
+          make-header)
+ (only-in web-server/servlet-env
+          serve/servlet))
+
+(define fixed-response
+  (response/full
+   200                          ;; code
+   (string->bytes/utf-8 "OK")   ;; message
+   (current-seconds)            ;; timestamp in s
+   #f                           ;; mime or #f
+   (list (make-header           ;; list of headers
+          (string->bytes/utf-8 "Server")
+          (string->bytes/utf-8 "Racket")))
+   (list                        ;; body: list of bytes
+    (string->bytes/utf-8 "Hello world!\n"))))
+
+;; hello: request? -> response?
+(define (hello req)
+  fixed-response)
+
+(module+ main
+  (serve/servlet
+   hello
+   #:port 5000
+   #:command-line? #t
+   #:servlet-regexp #rx""))
+</file>
+
+<file path="benchmark/racket/run">
+#!/bin/sh
+
+BASEDIR=$(dirname $0)
+WORKER=${1:-1}
+
+exec racket "$BASEDIR/hello.rkt"
+</file>
+
+<file path="benchmark/racket/typed-hello.rkt">
+#lang typed/racket/base
+
+(require/typed net/url-structs
+  [#:struct path/param
+   ([path : (U String (U 'up 'same))]
+    [param : (Listof String)])]
+  [#:struct url
+   ([scheme : (U False String)]
+    [user : (U False String)]
+    [host : (U False String)]
+    [port : (U False Exact-Nonnegative-Integer)]
+    [path-absolute? : Boolean]
+    [path : (Listof path/param)]
+    [query : (Listof (Pairof Symbol (U False String)))]
+    [fragment : (U False String)])])
+(require/typed web-server/http
+  [#:struct header
+   ([field : Bytes]
+    [value : Bytes])]
+  [#:struct binding
+   ([id : Bytes])]
+  [#:struct request
+   ([method : Bytes]
+    [uri : url]
+    [headers/raw : (Listof header)]
+    [bindings/raw-promise : (Promise (Listof binding))]
+    [post-data/raw : (U False Bytes)]
+    [host-ip : String]
+    [host-port : Number]
+    [client-ip : String])]
+  [#:struct response
+   ([code : Number]
+    [message : Bytes]
+    [seconds : Number]
+    [mime : (U False Bytes)]
+    [headers : (Listof Bytes)]
+    [output : (-> Boolean Any)])]
+  [response/output (-> (-> Output-Port Void) response)])
+
+
+(: hello (-> request response))
+(define (hello req)
+  (response/output (lambda (out) (display "Hello world!\n" out))))
+
+(module+ main
+  (require/typed web-server/servlet-env
+    [serve/servlet (-> (-> request response)
+                        (#:port Number)
+                        (#:command-line? Boolean)
+                        (#:servlet-regexp Regexp)
+                        Void)])
+  (serve/servlet
+   hello
+   #:port 5000
+   #:command-line? #t
+   #:servlet-regexp #rx""))
+</file>
+
+<file path="benchmark/tornado/run">
+#!/usr/bin/env python
+# -*- mode: python -*-
+import tornado.ioloop
+import tornado.web
+
+class MainHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write("Hello, World")
+
+application = tornado.web.Application([
+    (r"/", MainHandler),
+])
+
+if __name__ == "__main__":
+    application.listen(5000)
+    tornado.ioloop.IOLoop.instance().start()
+</file>
+
+<file path="benchmark/unicorn/app.ru">
+# -*- mode: ruby -*-
+#
+# unicorn -E production -c benchmark/unicorn/config.rb benchmark/unicorn/app.ru
+#
+# http://localhost:8080/
+
+class HelloApp
+  def call(env)
+    [ 
+      200,
+      {},
+      ['Hello, World']
+    ]
+  end
+end
+run HelloApp.new
+</file>
+
+<file path="benchmark/unicorn/config.rb">
+worker_processes 4
+preload_app true
+listen "/tmp/app.sock"
+</file>
+
+<file path="benchmark/unicorn/nginx.conf">
+worker_processes  4;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+  access_log off;
+  sendfile on;
+  tcp_nopush on;
+  tcp_nodelay on;
+  etag off;
+  upstream app {
+    server unix:/tmp/app.sock;
+  }
+  server {
+    listen       5000;
+    location / {
+      proxy_pass http://app;
+    }
+  }
+}
+</file>
+
+<file path="benchmark/unicorn/run">
+#!/bin/sh
+
+BASEDIR=$(dirname $0)
+exec unicorn -E production -c "$BASEDIR/config.rb" "$BASEDIR/app.ru"
+</file>
+
+<file path="benchmark/woo/hello.ros">
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+(ql:quickload '(:uiop :woo) :silent t)
+
+(defun starts-with (x starts)
+  (and (<= (length starts) (length x))
+       (string= x starts :end1 (length starts))))
+
+(defun parse-argv (args)
+  (flet ((parse-int-value (option value)
+           (handler-case (parse-integer value)
+             (error (e)
+               (error "Invalid value for ~S: ~S~%  ~A" option value e)))))
+    (loop for option = (pop args)
+          for value = (pop args)
+          while option
+          if (not (starts-with option "--"))
+            do (error "Invalid option: ~S" option)
+          else
+            if (equal option "--worker")
+              append (list :worker-num (parse-int-value option value))
+          else
+            if (equal option "--port")
+              append (list :port (parse-int-value option value))
+          else
+            do (error "Unknown option: ~S" option))))
+
+(defun main (&rest argv)
+  (let ((args (parse-argv argv)))
+    (apply #'woo:run (lambda (env)
+                       (declare (ignore env))
+                       '(200 () ("Hello, World")))
+           :debug nil
+           args)))
+</file>
+
+<file path="benchmark/woo/run">
+#!/bin/sh
+
+BASEDIR=$(dirname $0)
+WORKER=${1:-1}
+
+exec "$BASEDIR/hello.ros" --worker "$WORKER"
+</file>
+
+<file path="benchmark/wookie/run">
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+;;
+;; http://localhost:5000/
+
+(ql:quickload :wookie :silent t)
+
+(defpackage :wookie-test
+    (:use :cl :wookie))
+(in-package :wookie-test)
+
+(defroute (:get "/") (req res)
+  (send-response res :body "Hello, World"))
+
+(defun main (&rest argv)
+  (declare (ignore argv))
+  (as:with-event-loop (:catch-app-errors t)
+    (start-server (make-instance 'listener :port 5000))))
+</file>
+
+<file path="benchmark/run-benchmark">
+#!/bin/sh
+
+BENCHMARK_DIR=$(dirname $0)
+
+REPEAT=${REPEAT:-3}
+SERVER_PORT=${SERVER_PORT:-5000}
+THREADS=${THREADS:-4}
+CONNECTIONS=${CONNECTIONS:-10}
+
+echo "$ $@"
+$@ >>"$BENCHMARK_DIR/benchmark.log" 2>&1 &
+SERVER_PID=$!
+
+while true; do
+    nc -z 127.0.0.1 $SERVER_PORT >/dev/null 2>&1 && break
+    sleep 1
+done
+
+echo "Started a server ($@) at $SERVER_PID."
+
+for i in `seq 1 $REPEAT`; do
+    echo "\nRunning wrk ($i/$REPEAT)..."
+    wrk -c "$CONNECTIONS" -t "$THREADS" -d 10 "http://127.0.0.1:$SERVER_PORT"
+done
+
+kill "$SERVER_PID"
+</file>
+
+<file path="src/ev/condition.lisp">
+(in-package :cl-user)
+(defpackage woo.ev.condition
+  (:use :cl)
+  (:export :woo-error
+           :tcp-error
+           :socket-closed
+           :os-error))
+(in-package :woo.ev.condition)
+
+(define-condition woo-error (error)
+  ((description :initarg :description)
+   (code :initarg :code
+         :initform nil))
+  (:report (lambda (condition stream)
+             (with-slots (description code) condition
+               (format stream
+                       "~A~:[~;~:* (Code: ~A)~]"
+                       description code)))))
+
+(define-condition tcp-error (woo-error) ())
+(define-condition socket-closed (tcp-error)
+  ((description :initform "socket is already closed")))
+
+(define-condition os-error (woo-error) ())
+</file>
+
+<file path="src/ev/event-loop.lisp">
+(in-package :cl-user)
+(defpackage woo.ev.event-loop
+  (:use :cl)
+  (:import-from :lev
+                :ev-loop-new
+                :ev-run
+                :+EVFLAG-FORKCHECK+)
+  (:import-from :cffi
+                :foreign-free)
+  (:import-from :static-vectors
+                :make-static-vector
+                :free-static-vector)
+  (:export :with-event-loop
+           :check-event-loop-running
+
+           :*evloop*
+           :*buffer-size*
+           :*input-buffer*
+           :*data-registry*
+
+           :callbacks
+           :remove-callbacks
+           :deref-data-from-pointer
+           :remove-pointer-from-registry))
+(in-package :woo.ev.event-loop)
+
+(defparameter *evloop* nil)
+(defvar *buffer-size* (* 1024 64))
+(defparameter *input-buffer* nil)
+
+(defvar *callbacks* nil)
+(defvar *data-registry* nil)
+
+(defun (setf callbacks) (callbacks pointer)
+  (setf (gethash pointer *callbacks*) callbacks))
+
+(defun callbacks (pointer)
+  (declare (optimize (speed 3) (safety 0)))
+  (when *callbacks*
+    (gethash pointer (the hash-table *callbacks*))))
+
+(defun remove-callbacks (pointer)
+  (declare (optimize (speed 3) (safety 0)))
+  (when *callbacks*
+    (remhash pointer (the hash-table *callbacks*))))
+
+(defun deref-data-from-pointer (pointer)
+  (declare (optimize (speed 3) (safety 0)))
+  (when *data-registry*
+    (gethash pointer (the hash-table *data-registry*))))
+
+(defun (setf deref-data-from-pointer) (data pointer)
+  (setf (gethash pointer *data-registry*) data))
+
+(defun remove-pointer-from-registry (pointer)
+  (declare (optimize (speed 3) (safety 0)))
+  (when *data-registry*
+    (remhash pointer (the hash-table *data-registry*))))
+
+(defmacro with-event-loop ((&key enable-fork cleanup-fn) &body body)
+  `(let ((*evloop* (lev:ev-loop-new (if ,enable-fork
+                                        lev:+EVFLAG-FORKCHECK+
+                                        0)))
+         (*callbacks* (make-hash-table :test 'eql))
+         (*data-registry* (make-hash-table :test 'eql))
+         (*input-buffer* (make-static-vector *buffer-size*)))
+     (unwind-protect (progn
+                       ,@body
+                       (lev:ev-run *evloop* 0))
+       (let ((close-socket-fn (intern #.(string :close-socket) (find-package #.(string :woo.ev.socket)))))
+         (maphash (lambda (fd socket)
+                    (declare (ignore fd))
+                    (funcall close-socket-fn socket))
+                  *data-registry*))
+       ,@(when cleanup-fn
+           `((funcall ,cleanup-fn)))
+       (free-static-vector *input-buffer*)
+       (cffi:foreign-free *evloop*))))
+
+(defun check-event-loop-running ()
+  (unless *evloop*
+    (error "Event loop not running")))
+</file>
+
+<file path="src/ev/socket.lisp">
+(in-package :cl-user)
+(defpackage woo.ev.socket
+  (:use :cl)
+  (:import-from :woo.ev.event-loop
+                :*evloop*
+                :deref-data-from-pointer
+                :remove-pointer-from-registry)
+  (:import-from :woo.ev.util
+                :io-fd
+                :define-c-callback)
+  (:import-from :woo.syscall
+                #+nil :close
+                #+nil :write
+                :errno
+                :EWOULDBLOCK
+                :EINTR
+                :ECONNABORTED
+                :ECONNREFUSED
+                :ECONNRESET)
+  (:import-from :woo.ev.condition
+                :socket-closed)
+  (:import-from :lev
+                :ev-now
+                :ev-io
+                :ev-io-init
+                :ev-io-start
+                :ev-io-stop
+                :ev-timer
+                :ev-timer-stop
+                :+EV-READ+
+                :+EV-WRITE+)
+  (:import-from :fast-io
+                :make-output-buffer
+                :fast-write-sequence
+                :fast-write-byte
+                :finish-output-buffer)
+  (:import-from :cffi
+                :with-pointer-to-vector-data
+                :incf-pointer
+                :foreign-free)
+  (:export :socket
+           :make-socket
+           :socket-read-watcher
+           :socket-write-watcher
+           :socket-timeout-timer
+           :socket-last-activity
+           :socket-remote-addr
+           :socket-remote-port
+           :socket-data
+           :socket-read-cb
+           :socket-open-p
+           :socket-ssl-handle
+           :check-socket-open
+
+           :write-socket-data
+           :write-socket-byte
+           :write-socket-stream
+           :flush-buffer
+           :with-async-writing
+           :send-static-file
+           :close-socket))
+(in-package :woo.ev.socket)
+
+(defstruct (socket (:constructor %make-socket))
+  (watchers (make-array 3
+                        :element-type 'cffi:foreign-pointer
+                        :initial-contents (list (cffi:foreign-alloc '(:struct lev:ev-io))
+                                                (cffi:foreign-alloc '(:struct lev:ev-io))
+                                                (cffi:foreign-alloc '(:struct lev:ev-timer))))
+   :type (simple-array cffi:foreign-pointer (3)))
+  (last-activity (lev:ev-now *evloop*) :type double-float)
+  (fd nil :type fixnum)
+  remote-addr
+  remote-port
+  data
+  (tcp-read-cb nil :type symbol)
+  (read-cb nil :type (or null function))
+  (write-cb nil :type (or null function))
+  (ssl-handle nil :type (or null cffi:foreign-pointer))
+  (open-p t :type boolean)
+
+  (buffer (make-output-buffer #+lispworks :output #+lispworks :static))
+  (sendfile-fd nil :type (or null fixnum))
+  (sendfile-size nil :type (or null integer))
+  (sendfile-offset 0 :type (or null integer)))
+
+(defun buffer-empty-p (socket)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (= (the fixnum (fast-io::output-buffer-len (socket-buffer socket))) 0))
+
+(defun make-socket (&rest initargs &key tcp-read-cb fd &allow-other-keys)
+  (let ((socket (apply #'%make-socket initargs)))
+    (lev:ev-io-init (socket-read-watcher socket)
+                    tcp-read-cb
+                    fd
+                    lev:+EV-READ+)
+    (lev:ev-io-init (socket-write-watcher socket)
+                    'async-write-cb
+                    fd
+                    lev:+EV-WRITE+)
+    socket))
+
+(declaim (inline socket-read-watcher socket-write-watcher socket-timeout-timer))
+
+(defun socket-read-watcher (socket)
+  (svref (socket-watchers socket) 0))
+
+(defun socket-write-watcher (socket)
+  (svref (socket-watchers socket) 1))
+
+(defun socket-timeout-timer (socket)
+  (svref (socket-watchers socket) 2))
+
+(defun free-watchers (socket)
+  (let ((read-watcher (socket-read-watcher socket))
+        (write-watcher (socket-write-watcher socket))
+        (timeout-timer (socket-timeout-timer socket)))
+    (lev:ev-io-stop *evloop* read-watcher)
+    (lev:ev-io-stop *evloop* write-watcher)
+    (lev:ev-timer-stop *evloop* timeout-timer)
+    (cffi:foreign-free read-watcher)
+    (cffi:foreign-free write-watcher)
+    (cffi:foreign-free timeout-timer)))
+
+(defun close-socket (socket)
+  (when (socket-open-p socket)
+    (setf (socket-open-p socket) nil)
+    (free-watchers socket)
+    (let ((fd (socket-fd socket)))
+      (wsys:close fd)
+      (remove-pointer-from-registry fd))
+    (setf (socket-read-cb socket) nil
+          (socket-write-cb socket) nil
+          (socket-buffer socket) nil
+          (socket-data socket) nil)
+    (let ((sendfile-fd (socket-sendfile-fd socket)))
+      (when sendfile-fd
+        (wsys:close sendfile-fd)
+        (setf (socket-sendfile-fd socket) nil))))
+  t)
+
+(defun check-socket-open (socket)
+  (unless (socket-open-p socket)
+    (error 'socket-closed)))
+
+(defun write-socket-data (socket data &key (start 0) (end (length data))
+                                        (write-cb nil write-cb-specified-p))
+  (declare (optimize speed)
+           (type vector data)
+           (type fixnum start end))
+  (when (socket-open-p socket)
+    (when write-cb-specified-p
+      (setf (socket-write-cb socket) write-cb))
+    (if (typep data '(simple-array (unsigned-byte 8) (*)))
+        (fast-write-sequence data
+                             (socket-buffer socket)
+                             start end)
+        (loop for i from start upto (1- end)
+              for byte of-type (unsigned-byte 8) = (aref data i)
+              do (fast-write-byte byte (socket-buffer socket))))))
+
+(defun write-socket-byte (socket byte &key (write-cb nil write-cb-specified-p))
+  (declare (optimize speed)
+           (type (unsigned-byte 8) byte))
+  (when (socket-open-p socket)
+    (when write-cb-specified-p
+      (setf (socket-write-cb socket) write-cb))
+    (fast-write-byte byte (socket-buffer socket))))
+
+(defun write-socket-stream (socket stream &key (write-cb nil write-cb-specified-p))
+  (declare (optimize speed)
+           (type file-stream stream))
+  (when (socket-open-p socket)
+    (when write-cb-specified-p
+      (setf (socket-write-cb socket) write-cb))
+    (let ((file-size (file-length stream))
+          (buffer (socket-buffer socket)))
+      (unless (= (file-position stream) file-size)
+        (loop
+          (let* ((start (fast-io::output-buffer-fill buffer))
+                 (end
+                   (read-sequence (fast-io::output-buffer-vector buffer)
+                                  stream
+                                  :start start)))
+            (setf (fast-io::output-buffer-fill buffer) end)
+            (incf (fast-io::output-buffer-len buffer)
+                  (- end start)))
+          (cond
+            ((= (file-position stream) file-size)
+             (return))
+            ;; Prevent from loading a too large file on memory.
+            ;; TODO: Allow to set the threshold by users.
+            ((< 1048576 (fast-io::output-buffer-len buffer))
+             (and (flush-buffer socket)
+                  (reset-buffer socket)))
+            (t
+             (fast-io::extend buffer))))))))
+
+(declaim (inline reset-buffer))
+(defun reset-buffer (socket)
+  (let ((buffer (socket-buffer socket)))
+    (when buffer
+      (setf (fast-io::output-buffer-vector buffer) (fast-io::make-octet-vector fast-io:*default-output-buffer-size*)
+            (fast-io::output-buffer-fill buffer) 0
+            (fast-io::output-buffer-len buffer) 0
+            (fast-io::output-buffer-queue buffer) nil
+            (fast-io::output-buffer-last buffer) nil))))
+
+(defun flush-buffer (socket)
+  (declare (optimize speed))
+  (check-socket-open socket)
+  (let ((data (finish-output-buffer (socket-buffer socket)))
+        (fd (socket-fd socket)))
+    (declare (type (simple-array (unsigned-byte 8) (*)) data))
+    (cffi:with-pointer-to-vector-data (data-sap data)
+      (let* ((len (length data))
+             (completedp nil)
+             (ssl-handle (socket-ssl-handle socket))
+             (n
+               #+woo-no-ssl
+               (wsys:write fd data-sap len)
+               #-woo-no-ssl
+               (if ssl-handle
+                   (cl+ssl::ssl-write ssl-handle
+                                      data-sap
+                                      len)
+                   (wsys:write fd data-sap len))))
+        (declare (type fixnum len)
+                 (type fixnum n))
+        (case n
+          (-1
+           (if ssl-handle
+               #+woo-no-ssl (close-socket socket)
+               #-woo-no-ssl
+               (let ((errno (cl+ssl::ssl-get-error ssl-handle n)))
+                 (declare (type fixnum errno))
+                 (cond
+                   ((or (= errno cl+ssl::+ssl-error-zero-return+)
+                        (= errno cl+ssl::+ssl-error-ssl+))
+                    (close-socket socket))
+                   ((= errno cl+ssl::+ssl-error-want-write+))
+                   (t
+                    (vom:error "Unexpected error (Code: ~D)" errno)
+                    (close-socket socket))))
+               (let ((errno (wsys:errno)))
+                 (return-from flush-buffer
+                   (cond
+                     ((or (= errno wsys:EWOULDBLOCK)
+                          (= errno wsys:EINTR))
+                      nil)
+                     ((or (= errno wsys:ECONNABORTED)
+                          (= errno wsys:ECONNREFUSED)
+                          (= errno wsys:ECONNRESET)
+                          (= errno wsys:EPIPE)
+                          (= errno wsys:ENOTCONN))
+                      (vom:error "Connection is already closed (Code: ~D)" errno)
+                      (close-socket socket)
+                      t)
+                     (t
+                      (vom:error "Unexpected error (Code: ~D)" errno)
+                      (close-socket socket)
+                      t))))))
+          (otherwise
+           (setf (socket-last-activity socket) (lev:ev-now *evloop*))
+           (if (= n len)
+               (setq completedp t)
+               (progn
+                 (reset-buffer socket)
+                 (fast-write-sequence data
+                                      (socket-buffer socket)
+                                      n)))))
+        completedp))))
+
+(defun send-file (socket)
+  (declare (optimize speed))
+  (let* ((infd (socket-sendfile-fd socket))
+         (offset (socket-sendfile-offset socket))
+         (n (wsys:sendfile infd (socket-fd socket) offset
+                           (min (- (socket-sendfile-size socket) offset)
+                                (* 1024 100)))))
+    (declare (type fixnum n))
+    (cond
+      ((= n -1)
+       (let ((errno (wsys:errno)))
+         (declare (type fixnum errno))
+         (return-from send-file
+           (cond
+             ((or (= errno wsys:EWOULDBLOCK)
+                  (= errno wsys:EINTR))
+              nil)
+             ((or (= errno wsys:ECONNABORTED)
+                  (= errno wsys:ECONNREFUSED)
+                  (= errno wsys:ECONNRESET)
+                  (= errno wsys:EPIPE)
+                  (= errno wsys:ENOTCONN))
+              (vom:error "Connection is already closed (Code: ~D)" errno)
+              (close-socket socket)
+              t)
+             (t
+              (vom:error "Unexpected error (Code: ~D)" errno)
+              (close-socket socket)
+              t)))))
+      (t
+       (setf (socket-last-activity socket) (lev:ev-now *evloop*))
+       (let ((completedp (= (socket-sendfile-size socket)
+                            (incf (socket-sendfile-offset socket) n))))
+         (when completedp
+           (wsys:close infd)
+           (setf (socket-sendfile-fd socket) nil))
+         completedp)))))
+
+(defun async-write (socket)
+  (declare (optimize speed))
+  (unless (socket-open-p socket)
+    (return-from async-write t))
+
+  ;; Send from buffer
+  (unless (buffer-empty-p socket)
+    (unless (flush-buffer socket)
+      (return-from async-write nil))
+    (reset-buffer socket))
+  ;; Send a static file?
+  (when (socket-sendfile-fd socket)
+    (unless (send-file socket)
+      (return-from async-write nil)))
+
+  ;; Transfer has been completed.
+  (when (socket-write-cb socket)
+    (funcall (the function (socket-write-cb socket)) socket))
+  ;; Need to check if 'socket' is still open because it may be closed in write-cb.
+  (when (socket-open-p socket)
+    (setf (socket-write-cb socket) nil)
+    (lev:ev-io-stop *evloop* (socket-write-watcher socket)))
+  t)
+
+(define-c-callback async-write-cb :void ((evloop :pointer) (io :pointer) (events :int))
+  (declare (optimize speed)
+           (ignore events))
+  (let* ((fd (io-fd io))
+         (socket (deref-data-from-pointer fd)))
+    (unless socket
+      (lev:ev-io-stop evloop io)
+      (cffi:foreign-free io)
+      (return-from async-write-cb))
+
+    (async-write socket)))
+
+(defmacro with-async-writing ((socket &key write-cb force-streaming) &body body)
+  `(progn
+     ,@body
+     (setf (socket-write-cb ,socket) ,write-cb)
+     ,(if force-streaming
+          `(unless (async-write ,socket)
+             (lev:ev-io-start *evloop* (socket-write-watcher ,socket)))
+          `(lev:ev-io-start *evloop* (socket-write-watcher ,socket)))))
+
+(defun send-static-file (socket fd size)
+  (with-slots (sendfile-fd sendfile-size sendfile-offset) socket
+    (when sendfile-fd
+      (warn "Trying to send another file while sending a file.")
+      (wsys:close sendfile-fd))
+    (setf sendfile-fd fd
+          sendfile-size size
+          sendfile-offset 0)))
+</file>
+
+<file path="src/ev/tcp.lisp">
+(in-package :cl-user)
+(defpackage woo.ev.tcp
+  (:use :cl)
+  (:import-from :woo.ev.event-loop
+                :check-event-loop-running
+                :deref-data-from-pointer
+                :callbacks
+                :*evloop*
+                :*input-buffer*)
+  (:import-from :woo.ev.socket
+                :make-socket
+                :close-socket
+                :socket-ssl-handle
+                :socket-fd
+                :socket-read-cb
+                :socket-read-watcher
+                :socket-timeout-timer
+                :socket-last-activity)
+  (:import-from :woo.ev.condition
+                :os-error)
+  (:import-from :woo.syscall
+                :set-fd-nonblock
+                #+nil :close
+                #+nil :read
+                :errno
+                :EWOULDBLOCK
+                :ECONNABORTED
+                :ECONNREFUSED
+                :ECONNRESET
+                :EPROTO
+                :EINTR)
+  (:import-from :woo.llsocket
+                #-linux :accept
+                #+linux :accept4
+                :bind
+                #+nil :listen
+                :+SOCK-CLOEXEC+
+                :+SOCK-NONBLOCK+
+                :socket
+                :sockaddr-in
+                :sockaddr-in6
+                :sockaddr-storage
+                :inet-ntoa
+                :inet-ntop
+                :setsockopt
+                :addrinfo
+                :getaddrinfo
+                :freeaddrinfo
+                :+AF-INET+
+                :+AF-INET6+
+                :+AI-PASSIVE+
+                :+SOCK-STREAM+
+                :+SOL-SOCKET+
+                :+SO-REUSEADDR+)
+  (:import-from :woo.ev.util
+                :define-c-callback
+                :io-fd)
+  (:import-from :lev
+                :ev-io
+                :ev-now
+                :ev-io-init
+                :ev-io-start
+                :ev-io-stop
+                :ev-timer
+                :ev-timer-init
+                :ev-timer-again
+                :+EV-READ+
+                :+EV-TIMER+)
+  (:import-from :swap-bytes
+                :htonl
+                :htons)
+  (:import-from :cffi
+                :foreign-alloc
+                :foreign-free
+                :foreign-slot-value
+                :foreign-slot-pointer
+                :with-foreign-object
+                :with-foreign-slots
+                :mem-aref
+                :mem-ref
+                :null-pointer
+                :foreign-type-size
+                :foreign-string-to-lisp)
+  (:export :tcp-server
+           :close-tcp-server
+           :with-sockaddr
+           :start-listening-socket
+           :*connection-timeout*))
+(in-package :woo.ev.tcp)
+
+(declaim (type double-float *connection-timeout*))
+(defvar *connection-timeout* (coerce (* 15 60) 'double-float))
+
+(define-c-callback tcp-read-cb :void ((evloop :pointer) (watcher :pointer) (events :int))
+  (declare (ignore evloop events))
+  (let* ((fd (io-fd watcher))
+         (buffer-len (length *input-buffer*))
+         (socket (deref-data-from-pointer fd))
+         (read-cb (socket-read-cb socket))
+         (ssl-handle (socket-ssl-handle socket)))
+    (loop
+      (let ((n
+              #+woo-no-ssl
+              (wsys:read fd (static-vectors:static-vector-pointer *input-buffer*) buffer-len)
+              #-woo-no-ssl
+              (if ssl-handle
+                  (cl+ssl::ssl-read ssl-handle (static-vectors:static-vector-pointer *input-buffer*) buffer-len)
+                  (wsys:read fd (static-vectors:static-vector-pointer *input-buffer*) buffer-len))))
+        (declare (type fixnum n))
+        (case n
+          (-1
+           (if ssl-handle
+               #+woo-no-ssl (close-socket socket)
+               #-woo-no-ssl
+               (let ((errno (cl+ssl::ssl-get-error ssl-handle n)))
+                 (declare (type fixnum errno))
+                 (cond
+                   ((or (= errno cl+ssl::+ssl-error-zero-return+)
+                        (= errno cl+ssl::+ssl-error-ssl+))
+                    (close-socket socket))
+                   ((= errno cl+ssl::+ssl-error-want-read+))
+                   (t
+                    (vom:error "Unexpected error (Code: ~D)" errno)
+                    (close-socket socket))))
+               (let ((errno (wsys:errno)))
+                 (declare (type fixnum errno))
+                 (cond
+                   ((or (= errno wsys:EWOULDBLOCK)
+                        (= errno wsys:EINTR)))
+                   ((or (= errno wsys:ECONNABORTED)
+                        (= errno wsys:ECONNREFUSED)
+                        (= errno wsys:ECONNRESET))
+                    (vom:error "Connection is already closed (Code: ~D)" errno)
+                    (close-socket socket))
+                   ((= errno wsys:EAGAIN)
+                    ;; Just to nothing
+                    )
+                   (t
+                    (vom:error "Unexpected error (Code: ~D)" errno)
+                    (close-socket socket)))))
+           (return))
+          (0
+           ;; EOF
+           (setf (socket-last-activity socket) (lev:ev-now *evloop*))
+           (close-socket socket)
+           (return))
+          (otherwise
+           (setf (socket-last-activity socket) (lev:ev-now *evloop*))
+           (when read-cb
+             (funcall (the function read-cb) socket *input-buffer* :start 0 :end n))
+           (unless (= n buffer-len)
+             (return))))))))
+
+(define-c-callback timeout-cb :void ((evloop :pointer) (timer :pointer) (events :int))
+  (declare (ignore events))
+  (let* ((now (lev:ev-now evloop))
+         (fd (io-fd (cffi:foreign-slot-value timer '(:struct lev:ev-timer) 'lev::data)))
+         (socket (deref-data-from-pointer fd))
+         (timeout (+ (socket-last-activity socket) *connection-timeout*)))
+    (declare (type double-float now timeout))
+    (if (< timeout now)
+        (progn
+          (vom:info "Timeout, closing connection")
+          (close-socket socket))
+        (progn
+          (setf (cffi:foreign-slot-value timer '(:struct lev:ev-timer) 'lev::repeat)
+                (- timeout now))
+          (lev:ev-timer-again evloop timer)))))
+
+(defvar *dummy-sockaddr*)
+(defvar *dummy-socklen*)
+(defvar *dummy-sockstring*)
+
+(defmacro with-sockaddr (&body body)
+  `(let* ((*dummy-sockaddr* (cffi:foreign-alloc '(:struct wsock:sockaddr-storage)))
+          (*dummy-socklen* (cffi:foreign-alloc 'wsock:socklen-t))
+          (*dummy-sockstring* (cffi:foreign-alloc :char :count 46)))
+     (wsys:bzero *dummy-sockaddr* (cffi:foreign-type-size '(:struct wsock:sockaddr-storage)))
+     (setf (cffi:mem-aref *dummy-socklen* 'wsock:socklen-t) (cffi:foreign-type-size '(:struct wsock:sockaddr-storage)))
+     (dotimes (i 46)
+       (setf (mem-ref *dummy-sockstring* :char i) 0))
+     (unwind-protect
+          (progn ,@body)
+       (cffi:foreign-free *dummy-sockaddr*)
+       (cffi:foreign-free *dummy-socklen*)
+       (cffi:foreign-free *dummy-sockstring*))))
+
+(defun get-remote-addr-and-port ()
+  (declare (optimize (speed 3) (safety 2) (debug 2)))
+  (let ((family (cffi:foreign-slot-value *dummy-sockaddr* '(:struct wsock:sockaddr-storage) 'wsock::family)))
+    (declare (type fixnum family))
+    (cond
+      ((= family wsock:+AF-INET6+)
+       (wsock:inet-ntop
+        family
+        (cffi:foreign-slot-pointer *dummy-sockaddr* '(:struct wsock:sockaddr-in6) 'wsock::addr)
+        *dummy-sockstring*
+        (cffi:mem-aref *dummy-socklen* :int))
+       (values
+        (cffi:foreign-string-to-lisp *dummy-sockstring*)
+        (cffi:foreign-slot-value *dummy-sockaddr* '(:struct wsock:sockaddr-in6) 'wsock::port)))
+      ((= family wsock:+AF-INET+)
+       (values
+        (wsock:inet-ntoa
+         (cffi:foreign-slot-value *dummy-sockaddr* '(:struct wsock::sockaddr-in) 'wsock::addr))
+        (cffi:foreign-slot-value *dummy-sockaddr* '(:struct wsock:sockaddr-in) 'wsock::port)))
+      (t (values nil nil)))))
+
+(define-c-callback tcp-accept-cb :void ((evloop :pointer) (listener :pointer) (events :int))
+  (declare (ignore evloop events))
+  (let* ((fd (io-fd listener))
+         (client-fd #+linux (wsock:accept4 fd
+                                           *dummy-sockaddr*
+                                           *dummy-socklen*
+                                           (logxor wsock:+SOCK-CLOEXEC+ wsock:+SOCK-NONBLOCK+))
+                    #-linux (wsock:accept fd
+                                          *dummy-sockaddr*
+                                          *dummy-socklen*)))
+    (case client-fd
+      (-1 (let ((errno (wsys:errno)))
+            (cond
+              ((or (= errno wsys:EWOULDBLOCK)
+                   (= errno wsys:ECONNABORTED)
+                   (= errno wsys:EPROTO)
+                   (= errno wsys:EINTR)))
+              (t
+               (vom:error "Can't accept connection (Code: ~D)" errno)))))
+      (otherwise
+       #-linux (set-fd-nonblock client-fd t)
+
+       ;; In case the client disappeared before closing the socket,
+       ;; a socket object remains in the data registry.
+       ;; I need to check if OS is gonna reuse the file descriptor.
+       (let ((existing-socket (deref-data-from-pointer client-fd)))
+         (when existing-socket
+           (close-socket existing-socket)))
+       (multiple-value-bind (remote-addr remote-port)
+           (get-remote-addr-and-port)
+         (let ((socket (make-socket :fd client-fd :tcp-read-cb 'tcp-read-cb
+                                    :remote-addr remote-addr :remote-port remote-port)))
+           (let* ((callbacks (callbacks fd))
+                  (read-cb (getf callbacks :read-cb))
+                  (connect-cb (getf callbacks :connect-cb)))
+             (when read-cb
+               (setf (socket-read-cb socket) read-cb))
+             (when connect-cb
+               (funcall (the function connect-cb) socket)))))))))
+
+(defun start-listening-socket (socket)
+  (setf (deref-data-from-pointer (socket-fd socket)) socket)
+  (lev:ev-io-start *evloop* (socket-read-watcher socket))
+  (let ((timer (socket-timeout-timer socket)))
+    (lev:ev-timer-init timer 'timeout-cb *connection-timeout* 0.0d0)
+    (setf (cffi:foreign-slot-value timer '(:struct lev:ev-timer) 'lev::data) (socket-read-watcher socket))
+    (timeout-cb *evloop* timer lev:+EV-TIMER+)))
+
+(defun listen-on (address port &key (backlog 128) sockopt)
+  (cffi:with-foreign-object (ai '(:pointer (:struct wsock:addrinfo)))
+    (cffi:with-foreign-object (hints '(:struct wsock:addrinfo))
+      (wsys:bzero hints (cffi:foreign-type-size '(:struct wsock:addrinfo)))
+      (cffi:with-foreign-slots ((wsock::family wsock::socktype wsock::flags) hints (:struct wsock:addrinfo))
+        (setf wsock::family (if (and (stringp address)
+                                     (quri.domain:ipv6-addr-p address))
+                                wsock:+AF-INET6+
+                                wsock:+AF-INET+)
+              wsock::socktype wsock:+SOCK-STREAM+
+              wsock::flags wsock:+AI-PASSIVE+))
+      (let ((err (wsock:getaddrinfo (or address
+                                        (cffi:null-pointer))
+                                    (write-to-string port)
+                                    hints ai)))
+        (unless (= err 0)
+          (error 'os-error
+                 :description "getaddrinfo() failed"
+                 :code err))))
+    (let ((ai (cffi:mem-ref ai :pointer)))
+      (cffi:with-foreign-slots ((wsock::family
+                                 wsock::socktype
+                                 wsock::protocol
+                                 wsock::addr
+                                 wsock::addrlen)
+                                ai
+                                (:struct wsock:addrinfo))
+        (let ((fd (wsock:socket wsock::family wsock::socktype wsock::protocol)))
+          (when (= fd -1)
+            (error 'os-error
+                   :description (format nil "Cannot create listening socket (family=~S / socktype=~S / protocol=~S)"
+                                        wsock::family
+                                        wsock::socktype
+                                        wsock::protocol)
+                   :code (wsys:errno)))
+          (let ((res (wsys:set-fd-nonblock fd t)))
+            (when (= res -1)
+              (error 'os-error
+                     :description "Cannot set fd nonblock"
+                     :code (wsys:errno))))
+          (cffi:with-foreign-object (on :int)
+            (setf (cffi:mem-aref on :int) 1)
+            (when (= (wsock:setsockopt fd wsock:+SOL-SOCKET+ sockopt on (cffi:foreign-type-size :int)) -1)
+              (error 'os-error
+                     :description "Cannot set socket option"
+                     :code (wsys:errno))))
+          (when (= (wsock:bind fd wsock::addr wsock::addrlen) -1)
+            (error 'os-error
+                   :description (format nil "Cannot bind fd to the address ~S" address)
+                   :code (wsys:errno)))
+          (wsock:listen fd backlog)
+
+          (wsock:freeaddrinfo ai)
+
+          fd)))))
+
+(defun listen-on-fd (fd &key (backlog 128))
+  (set-fd-nonblock fd t)
+  (wsock:listen fd backlog)
+  fd)
+
+(defun listen-on-unix (path &key (backlog 128) sockopt)
+  (let ((fd (wsock:socket wsock:+AF-UNIX+ wsock:+SOCK-STREAM+ 0)))
+    (when (= fd -1)
+      (error 'os-error
+             :description "Cannot create listening socket"
+             :code (wsys:errno)))
+    (let ((res (wsys:set-fd-nonblock fd t)))
+      (when (= res -1)
+        (error 'os-error
+               :description "Cannot set fd nonblock"
+               :code (wsys:errno))))
+    (cffi:with-foreign-object (on :int)
+      (setf (cffi:mem-aref on :int) 1)
+      (when (= (wsock:setsockopt fd wsock:+SOL-SOCKET+ sockopt on (cffi:foreign-type-size :int)) -1)
+        (error 'os-error
+               :description "Cannot set socket option"
+               :code (wsys:errno))))
+    (when (probe-file path)
+      (delete-file path))
+    (let ((path (namestring path)))
+      ;; TODO: check if the path is too long
+      (cffi:with-foreign-object (sun '(:struct wsock:sockaddr-un))
+        (wsys:bzero sun (cffi:foreign-type-size '(:struct wsock:sockaddr-un)))
+        (setf (cffi:foreign-slot-value sun '(:struct wsock:sockaddr-un) 'wsock::family)
+              wsock:+AF-UNIX+)
+        (let ((sun-name-ptr (cffi:foreign-slot-pointer sun '(:struct wsock:sockaddr-un) 'wsock::path)))
+          (dotimes (i (length path))
+            (setf (cffi:mem-aref sun-name-ptr :char i) (char-code (elt path i)))))
+        (when (= (wsock:bind fd sun (+ (cffi:foreign-type-size 'wsock::sa-family-t)
+                                       (length path)
+                                       1))
+                 -1)
+          (error 'os-error
+                 :description (format nil "Cannot bind fd to ~S" path)
+                 :code (wsys:errno)))
+        (wsys:chmod path #o777)))
+    (wsock:listen fd backlog)
+    fd))
+
+(defun make-listener (address port &key backlog fd sockopt)
+  (let ((fd (if fd
+                (listen-on-fd fd :backlog backlog)
+                (listen-on address port :backlog backlog :sockopt sockopt)))
+        (listener (cffi:foreign-alloc '(:struct lev:ev-io))))
+    (lev:ev-io-init listener 'tcp-accept-cb fd lev:+EV-READ+)
+    listener))
+
+(defun tcp-server (address-port read-cb &key connect-cb (backlog 128) fd (sockopt wsock:+SO-REUSEADDR+))
+  (check-event-loop-running)
+  (etypecase address-port
+    (cons
+     (let* ((address (car address-port))
+            (port (cdr address-port))
+            (listener (make-listener address port :backlog backlog :fd fd :sockopt sockopt)))
+       (lev:ev-io-start *evloop* listener)
+       (setf (callbacks (io-fd listener)) (list :read-cb read-cb :connect-cb connect-cb))
+       listener))
+    (pathname
+     (let ((fd (listen-on-unix address-port :backlog backlog :sockopt sockopt))
+           (listener (cffi:foreign-alloc '(:struct lev:ev-io))))
+       (lev:ev-io-init listener 'tcp-accept-cb fd lev:+EV-READ+)
+       (lev:ev-io-start *evloop* listener)
+       (setf (callbacks (io-fd listener)) (list :read-cb read-cb :connect-cb connect-cb))
+       listener))))
+
+(defun close-tcp-server (watcher)
+  (when watcher
+    (let ((fd (io-fd watcher)))
+      (when fd
+        (wsys:close fd)))
+    (cffi:foreign-free watcher)))
+</file>
+
+<file path="src/ev/util.lisp">
+(in-package :cl-user)
+(defpackage woo.ev.util
+  (:use :cl)
+  (:import-from :lev
+                :ev-io
+                :fd)
+  (:import-from :cffi
+                :defcallback
+                :foreign-slot-value)
+  (:export :io-fd
+           :define-c-callback))
+(in-package :woo.ev.util)
+
+(declaim (inline io-fd))
+(defun io-fd (io)
+  (cffi:foreign-slot-value io '(:struct lev:ev-io) 'lev::fd))
+
+;; Copied from cl-async-util
+;; Copyright (c) 2012 Lyon Bros. Enterprises, LLC
+;; https://github.com/orthecreedence/cl-async/blob/master/LICENSE
+(defmacro define-c-callback (name return-val (&rest args) &body body)
+  "Define a top-level function with the given and also define a C callback that
+   calls the function directly. The idea is that CFFI callbacks aren't directly
+   callable/debuggable, but it's obnoxious to have to define and callback *and*
+   a function right next to each other."
+  (let ((arg-names (loop for x in args collect (car x))))
+    `(progn
+       (declaim (inline ,name))
+       (defun ,name ,arg-names
+         ,@body)
+       (prog1
+           (cffi:defcallback ,name ,return-val ,args
+             (,name ,@arg-names))
+         (declaim (notinline ,name))))))
+</file>
+
+<file path="src/llsocket/cffi.lisp">
+(in-package :woo.llsocket)
+
+(cffi:defcfun ("accept" accept) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen :pointer))
+
+#+linux
+(cffi:defcfun ("accept4" accept4) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen :pointer)
+  (flags :int))
+
+(cffi:defcfun ("bind" bind) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen socklen-t))
+
+(cffi:defcfun ("connect" connect) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen socklen-t))
+
+(cffi:defcfun ("getpeername" getpeername) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen socklen-t))
+
+(cffi:defcfun ("getsockname" getsockname) :int
+  (socket :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen socklen-t))
+
+(cffi:defcfun ("getsockopt" getsockopt) :int
+  (socket :int)
+  (level :int)
+  (optname :int)
+  (optval :pointer)
+  (optlen :int))
+
+(cffi:defcfun ("inet_ntoa" inet-ntoa) :string
+  (addr :int64))
+
+(cffi:defcfun ("inet_ntop" inet-ntop) :string
+  (af :int)
+  (src :pointer)
+  (dst :string)
+  (size socklen-t))
+
+(cffi:defcfun ("listen" listen) :int
+  (socket :int)
+  (backlog :int))
+
+(cffi:defcfun ("recvfrom" recvfrom) ssize-t
+  (socket :int)
+  (buffer :pointer)
+  (length size-t)
+  (flags :int)
+  (address :pointer)  ;; sockaddr
+  (addrlen socklen-t))
+
+(cffi:defcfun ("recvmsg" recvmsg) ssize-t
+  (socket :int)
+  (message :pointer)
+  (flags :int))
+
+(cffi:defcfun ("sendto" sendto) ssize-t
+  (socket :int)
+  (buffer :pointer)
+  (length size-t)
+  (flags :int)
+  (destaddr :pointer)  ;; sockaddr
+  (destlen socklen-t))
+
+(cffi:defcfun ("sendmsg" sendmsg) ssize-t
+  (socket :int)
+  (message :pointer)
+  (flags :int))
+
+(cffi:defcfun ("setsockopt" setsockopt) :int
+  (socket :int)
+  (level :int)
+  (optname :int)
+  (optval :pointer)
+  (optlen socklen-t))
+
+(cffi:defcfun ("shutdown" shutdown) :int
+  (socket :int)
+  (how :int))
+
+(cffi:defcfun ("socket" socket) :int
+  (domain :int)  ;; +AF-*+
+  (type :int)    ;; +SOCK-*+
+  (protocol :int))
+
+(cffi:defcfun ("socketpair" socketpair) :int
+  (domain :int)  ;; +AF-*+
+  (type :int)    ;; +SOCK-*+
+  (protocol :int)
+  (fd :int))
+
+(cffi:defcfun ("getaddrinfo" getaddrinfo) :int
+  (node :string)
+  (service :string)
+  (hints (:pointer addrinfo))
+  (res (:pointer (:pointer addrinfo))))
+
+(cffi:defcfun ("freeaddrinfo" freeaddrinfo) :void
+  (res (:pointer addrinfo)))
+</file>
+
+<file path="src/llsocket/grovel.lisp">
+#+(or bsd freebsd)
+(progn
+  (include "time.h")
+  (include "sys/time.h"))
+
+(include "sys/socket.h" "netinet/in.h" "netdb.h")
+
+(in-package :woo.llsocket)
+
+;; Address families
+(constant (+AF-UNIX+ "AF_UNIX"))
+(constant (+AF-INET+ "AF_INET"))
+(constant (+AF-INET6+ "AF_INET6"))
+
+;; Types
+(constant (+SOCK-STREAM+ "SOCK_STREAM"))
+(constant (+SOCK-DGRAM+ "SOCK_DGRAM"))
+(constant (+SOCK-RAW+ "SOCK_RAW"))
+(constant (+SOCK-RDM+ "SOCK_RDM"))
+(constant (+SOCK-SEQPACKET+ "SOCK_SEQPACKET"))
+(constant (+SOCK-CLOEXEC+ "SOCK_CLOEXEC") :optional t)
+(constant (+SOCK-NONBLOCK+ "SOCK_NONBLOCK") :optional t)
+
+;; Option flags per-socket
+(constant (+SO-DEBUG+ "SO_DEBUG"))
+(constant (+SO-ACCEPTCONN+ "SO_ACCEPTCONN"))
+(constant (+SO-REUSEADDR+ "SO_REUSEADDR"))
+(constant (+SO-REUSEPORT+ "SO_REUSEPORT"))
+(constant (+SO-KEEPALIVE+ "SO_KEEPALIVE"))
+(constant (+SO-DONTROUTE+ "SO_DONTROUTE"))
+(constant (+SO-BROADCAST+ "SO_BROADCAST"))
+(constant (+SO-USELOOPBACK+ "SO_USELOOPBACK"))
+(constant (+SO-LINGER+ "SO_LINGER"))
+(constant (+SO-OOBINLINE+ "SO_OOBINLINE"))
+
+;; Additional options, not kept in so_options
+(constant (+SO-SNDBUF+ "SO_SNDBUF"))
+(constant (+SO-RCVBUF+ "SO_RCVBUF"))
+(constant (+SO-SNDLOWAT+ "SO_SNDLOWAT"))
+(constant (+SO-RCVLOWAT+ "SO_RCVLOWAT"))
+(constant (+SO-SNDTIMEO+ "SO_SNDTIMEO"))
+(constant (+SO-RCVTIMEO+ "SO_RCVTIMEO"))
+(constant (+SO-ERROR+ "SO_ERROR"))
+(constant (+SO-TYPE+ "SO_TYPE"))
+
+;; Maximum queue length specifiable by listen
+(constant (+SOMAXCONN+ "SOMAXCONN"))
+
+;; Level number for (get/set)sockopt() to apply to socket itself
+(constant (+SOL-SOCKET+ "SOL_SOCKET")
+  :documentation "get/setsockopt socket level constant.")
+(constant (+SOL-TCP+ "SOL_TCP")
+  :documentation "get/setsockopt TCP level constant."
+  :optional t)
+(constant (+SOL-IP+ "SOL_IP")
+  :documentation "get/setsockopt IP level constant."
+  :optional t)
+(constant (+SOL-RAW+ "SOL_RAW")
+  :documentation "get/setsockopt raw level constant."
+  :optional t)
+
+(constant (+IPPROTO-IP+ "IPPROTO_IP"))
+(constant (+IPPROTO-IPV6+ "IPPROTO_IPV6"))
+(constant (+IPPROTO-ICMP+ "IPPROTO_ICMP"))
+(constant (+IPPROTO-ICMPV6+ "IPPROTO_ICMPV6"))
+(constant (+IPPROTO-RAW+ "IPPROTO_RAW"))
+(constant (+IPPROTO-TCP+ "IPPROTO_TCP"))
+(constant (+IPPROTO-UDP+ "IPPROTO_UDP"))
+
+(constant (+INADDR-ANY+ "INADDR_ANY"))
+(constant (+INADDR-BROADCAST+ "INADDR_BROADCAST"))
+(constant (+INADDR-NONE+ "INADDR_NONE"))
+(constant (+IN-LOOPBACKNET+ "IN_LOOPBACKNET"))
+(constant (+INADDR-LOOPBACK+ "INADDR_LOOPBACK"))
+(constant (+INADDR-UNSPEC-GROUP+ "INADDR_UNSPEC_GROUP"))
+(constant (+INADDR-ALLHOSTS-GROUP+ "INADDR_ALLHOSTS_GROUP"))
+(constant (+INADDR-ALLRTRS-GROUP+ "INADDR_ALLRTRS_GROUP"))
+(constant (+INADDR-MAX-LOCAL-GROUP+ "INADDR_MAX_LOCAL_GROUP"))
+
+;; IP options
+(constant (+IP-HDRINCL+ "IP_HDRINCL"))
+(constant (+IP-RECVERR+ "IP_RECVERR") :optional t)
+
+;; addrinfo flags
+(constant (+AI-PASSIVE+ "AI_PASSIVE"))
+(constant (+AI-CANONNAME+ "AI_CANONNAME"))
+(constant (+AI-NUMERICHOST+ "AI_NUMERICHOST"))
+(constant (+AI-V4MAPPED+ "AI_V4MAPPED"))
+(constant (+AI-ALL+ "AI_ALL"))
+(constant (+AI-ADDRCONFIG+ "AI_ADDRCONFIG"))
+
+;; POSIX types
+(ctype size-t "size_t")
+(ctype ssize-t "ssize_t")
+
+;; Types (sys/socket.h)
+(ctype socklen-t "socklen_t")
+(ctype sa-family-t "sa_family_t")
+
+;; Types (netinet/in.h)
+(ctype sa-family-t "sa_family_t")
+(ctype in-port-t "in_port_t")
+(ctype in-addr-t "in_addr_t")
+
+(cstruct sockaddr "struct sockaddr"
+  (family "sa_family" :type sa-family-t))
+
+(cstruct sockaddr-storage "struct sockaddr_storage"
+  (family "ss_family" :type sa-family-t))
+
+(cstruct sockaddr-in "struct sockaddr_in"
+  (family "sin_family" :type sa-family-t)
+  (port "sin_port" :type in-port-t)
+  (addr "sin_addr" :type in-addr-t))
+
+(cunion in6-addr "struct in6_addr"
+  (addr8 "s6_addr" :type :uint8 :count :auto))
+
+(cstruct sockaddr-in6 "struct sockaddr_in6"
+  (family "sin6_family" :type sa-family-t)
+  (port "sin6_port" :type in-port-t)
+  (flowinfo "sin6_flowinfo" :type :uint32)
+  (addr "sin6_addr" :type (:union in6-addr))
+  (scope-id "sin6_scope_id" :type :uint32))
+
+(cstruct addrinfo "struct addrinfo"
+  (flags "ai_flags" :type :int)
+  (family "ai_family" :type :int)
+  (socktype "ai_socktype" :type :int)
+  (protocol "ai_protocol" :type :int)
+  (addrlen "ai_addrlen" :type socklen-t)
+  (addr "ai_addr" :type :pointer)
+  (canonname "ai_canonname" :type :string)
+  (next "ai_next" :type :pointer))
+
+(include "sys/un.h")
+
+(cstruct sockaddr-un "struct sockaddr_un"
+  (family "sun_family" :type sa-family-t)
+  (path   "sun_path" :type :char))
+
+;; Message headers
+(constant (+MSG-OOB+ "MSG_OOB"))
+(constant (+MSG-PEEK+ "MSG_PEEK"))
+(constant (+MSG-DONTROUTE+ "MSG_DONTROUTE"))
+(constant (+MSG-EOR+ "MSG_EOR"))
+(constant (+MSG-TRUNC+ "MSG_TRUNC"))
+(constant (+MSG-CTRUNC+ "MSG_CTRUNC"))
+(constant (+MSG-WAITALL+ "MSG_WAITALL"))
+
+(cstruct msghdr "struct msghdr"
+  (name "msg_name" :type :pointer)
+  (namelen "msg_namelen" :type socklen-t)
+  (iov "msg_iov" :type :pointer)
+  (iovlen "msg_iovlen" :type size-t)
+  (control "msg_control" :type :pointer)
+  (controllen "msg_controllen" :type socklen-t)
+  (flags "msg_flags" :type :int))
+
+(cstruct cmsghdr "struct cmsghdr"
+  (len "cmsg_len" :type socklen-t)
+  (level "cmsg_level" :type :int)
+  (type "cmsg_type" :type :int))
+
+(constant (+SHUT-RD+ "SHUT_RD"))
+(constant (+SHUT-WR+ "SHUT_WR"))
+(constant (+SHUT-RDWR+ "SHUT_RDWR"))
+</file>
+
+<file path="src/llsocket/package.lisp">
+(in-package :cl-user)
+(defpackage woo.llsocket
+  (:nicknames :wsock)
+  (:use :cl)
+  (:shadow :listen)
+  (:export :+AF-UNIX+
+           :+AF-INET+
+           :+AF-INET6+
+
+           :+SOCK-STREAM+
+           :+SOCK-DGRAM+
+           :+SOCK-RAW+
+           :+SOCK-RDM+
+           :+SOCK-SEQPACKET+
+           :+SOCK-CLOEXEC+
+           :+SOCK-NONBLOCK+
+
+           :+SO-DEBUG+
+           :+SO-ACCEPTCONN+
+           :+SO-REUSEADDR+
+           :+SO-REUSEPORT+
+           :+SO-KEEPALIVE+
+           :+SO-DONTROUTE+
+           :+SO-BROADCAST+
+           :+SO-USELOOPBACK+
+           :+SO-LINGER+
+           :+SO-OOBINLINE+
+
+           :+SO-SNDBUF+
+           :+SO-RCVBUF+
+           :+SO-SNDLOWAT+
+           :+SO-RCVTIMEO+
+           :+SO-ERROR+
+           :+SO-TYPE+
+
+           :+SOMAXCONN+
+
+           :+SOL-SOCKET+
+           :+SOL-TCP+
+           :+SOL-IP+
+           :+SOL-RAW+
+
+           :+IPPROTO-IP+
+           :+IPPROTO-IPV6+
+           :+IPPROTO-ICMP+
+           :+IPPROTO-ICMPV6+
+           :+IPPROTO-RAW+
+           :+IPPROTO-TCP+
+           :+IPPROTO-UDP+
+
+           :+INADDR-ANY+
+           :+INADDR-BROADCAST+
+           :+INADDR-NONE+
+           :+IN-LOOPBACKNET+
+           :+INADDR-LOOPBACK+
+           :+INADDR-UNSPEC-GROUP+
+           :+INADDR-ALLHOSTS-GROUP+
+           :+INADDR-ALLRTRS-GROUP+
+           :+INADDR-MAX-LOCAL-GROUP+
+
+           :+IP-HDRINCL+
+           :+IP-RECVERR+
+
+           :sockaddr
+           :sockaddr-storage
+           :sockaddr-in
+           :in6-addr
+           :sockaddr-in6
+           :sockaddr-un
+           :addrinfo
+
+           :+MSG-OOB+
+           :+MSG-PEEK+
+           :+MSG-DONTROUTE+
+           :+MSG-EOR+
+           :+MSG-TRUNC+
+           :+MSG-CTRUNC+
+           :+MSG-WAITALL+
+
+           :+AI-PASSIVE+
+           :+AI-CANONNAME+
+           :+AI-NUMERICHOST+
+           :+AI-V4MAPPED+
+           :+AI-ALL+
+           :+AI-ADDRCONFIG+
+
+           :msghdr
+           :cmsghdr
+
+           :+SHUT-RD+
+           :+SHUT-WR+
+           :+SHUT-RDWR+
+
+           :socklen-t
+
+           :accept
+           #+linux
+           :accept4
+           :bind
+           :connect
+           :getpeername
+           :getsockname
+           :getsockopt
+           :inet-ntoa
+           :inet-ntop
+           :listen
+           :recvfrom
+           :recvmsg
+           :sendto
+           :sendmsg
+           :setsockopt
+           :shutdown
+           :socket
+           :socketpair
+           :getaddrinfo
+           :freeaddrinfo
+
+           :so-reuseport-available-p))
+(in-package :woo.llsocket)
+
+(defun so-reuseport-available-p ()
+  #+linux
+  (let ((kernel-version
+          (with-output-to-string (s)
+            (uiop:run-program "uname -r"
+                              :output s
+                              :ignore-error-status t))))
+    (setq kernel-version
+          (if (= 0 (length kernel-version))
+              nil
+              (subseq kernel-version 0 (1- (length kernel-version)))))
+    (when kernel-version
+      (multiple-value-bind (major read-count)
+          (parse-integer kernel-version :junk-allowed t)
+        (let ((minor (parse-integer kernel-version :start (1+ read-count) :junk-allowed t)))
+          (and major minor
+               (or (< 3 major)
+                   (and (= 3 major)
+                        (<= 9 minor))))))))
+  #-linux nil)
+</file>
+
+<file path="src/syscall/main.lisp">
+(in-package :woo.syscall)
+
+(defcfun (%open "open") :int
+  (path :string)
+  (flags :int)
+  (mode mode-t))
+
+(defun open (path &optional (flags +O-RDONLY+) (mode #o666))
+  (check-type mode fixnum)
+  (%open (cffi-sys:native-namestring (translate-logical-pathname path)) flags mode))
+
+(defcfun ("close") :int
+  (fd :int))
+
+(defcfun ("write") ssize-t
+  (fd :int)
+  (buf :pointer)
+  (count size-t))
+
+(defcfun ("read") ssize-t
+  (fd :int)
+  (buf :pointer)
+  (count :unsigned-int))
+
+(defcfun ("fcntl" %fcntl/noarg) :int
+  (fd  :int)
+  (cmd :int))
+
+(defcfun ("fcntl" %fcntl/int) :int
+  (fd  :int)
+  (cmd :int)
+  (arg :int))
+
+(defcfun ("kill" kill) :int
+  (pid :int)
+  (sig :int))
+
+(defcfun ("chmod" chmod) :int
+  (path :string)
+  (mode mode-t))
+
+(defconstant F-GETFL 3.)
+(defconstant F-SETFL 4.)
+(defconstant O-NONBLOCK 4.)
+
+(defun set-fd-nonblock (fd enabled)
+  (declare (optimize (speed 3) (safety 0)))
+  (let ((current-flags (%fcntl/noarg fd F-GETFL)))
+    (declare (type fixnum current-flags))
+    (if (< current-flags 0)
+        -1
+        (let ((new-flags
+                (if enabled
+                    (logxor current-flags O-NONBLOCK)
+                    (logand current-flags (lognot O-NONBLOCK)))))
+          (declare (type fixnum new-flags))
+          (if (= new-flags current-flags)
+              (%fcntl/int fd F-SETFL new-flags)
+              0)))))
+
+(defcfun (fork "fork") pid-t)
+
+(defcfun (memset "memset") :pointer
+  (buffer :pointer)
+  (value :int)
+  (count size-t))
+
+(defun bzero (buffer count)
+  (memset buffer 0 count))
+
+;; errno(3) is not a C function in some environments (ex. Mac).
+;; libfixposix can be a workaround for it, but I don't like to add a dependency on it
+;; just for it.
+#+(or sbcl ccl lispworks)
+(declaim (ftype (function () fixnum) errno))
+(defun errno ()
+  #+sbcl (sb-impl::get-errno)
+  #+ccl (ccl::%get-errno)
+  #+lispworks (lw:errno-value)
+  #-(or sbcl ccl lispworks) nil)
+
+(defcfun (getpid "getpid") pid-t)
+
+(defcfun (getppid "getppid") pid-t)
+
+#+linux
+(defcfun (%sendfile "sendfile") ssize-t
+  (infd   :int)
+  (outfd  :int)
+  (offset :pointer)
+  (nbytes size-t))
+#+darwin
+(defcfun (%sendfile "sendfile") ssize-t
+  (outfd  :int)
+  (infd   :int)
+  (offset off-t)
+  (len :pointer)
+  (hdtr :pointer)
+  (flags :int))
+#+(and (or freebsd bsd) (not darwin))
+(defcfun (%sendfile "sendfile") ssize-t
+  (infd   :int)
+  (outfd  :int)
+  (offset off-t)
+  (nbytes size-t)
+  (hdtr :pointer)
+  (sbytes :pointer)
+  (flags :int))
+
+(defun sendfile (infd outfd offset nbytes)
+  #+linux
+  (cffi:with-foreign-object (off 'off-t)
+    (setf (cffi:mem-aref off 'off-t) offset)
+    (%sendfile outfd infd off nbytes))
+  #+darwin
+  (cffi:with-foreign-object (len 'off-t)
+    (setf (cffi:mem-aref len 'off-t) nbytes)
+    (let ((retval (%sendfile infd outfd offset len (cffi:null-pointer) 0)))
+      (declare (type fixnum retval))
+      (if (= retval -1)
+          -1
+          (cffi:mem-aref len 'off-t))))
+  #+(and (or freebsd bsd) (not darwin))
+  (cffi:with-foreign-object (sbytes 'off-t)
+    (let ((retval (%sendfile infd outfd offset nbytes (cffi:null-pointer) sbytes +SF-MNOWAIT+)))
+      (declare (type fixnum retval))
+      (if (= retval -1)
+          -1
+          (cffi:mem-aref sbytes 'off-t))))
+  #-(or linux darwin freebsd bsd)
+  (error "sendfile is not supported"))
+</file>
+
+<file path="src/syscall/package.lisp">
+(in-package :cl-user)
+(defpackage woo.syscall
+  (:nicknames :wsys)
+  (:use :cl)
+  (:shadow :close
+           :write
+           :read
+           :open)
+  (:import-from :cffi
+                :defcfun)
+  (:export :close
+           :write
+           :read
+           :kill
+           :chmod
+           :set-fd-nonblock
+           :EWOULDBLOCK
+           :EPIPE
+           :EINTR
+           :EPROTO
+           :ECONNABORTED
+           :ECONNREFUSED
+           :ECONNRESET
+           :ENOTCONN
+           :EAGAIN
+
+           :fork
+           :memset
+           :bzero
+
+           :errno
+
+           :getpid
+           :getppid
+
+           :sendfile
+           :open))
+(in-package :woo.syscall)
+</file>
+
+<file path="src/syscall/types.lisp">
+(include "sys/types.h" "sys/fcntl.h" "errno.h")
+#+(or freebsd bsd)
+(include "sys/socket.h")
+
+(in-package :woo.syscall)
+
+(ctype size-t "size_t")
+(ctype ssize-t "ssize_t")
+(ctype pid-t "pid_t")
+(ctype off-t "off_t")
+(ctype mode-t "mode_t")
+
+#+(or freebsd bsd)
+(constant (+SF-MNOWAIT+ "SF_MNOWAIT"))
+
+(constant (+O-RDONLY+ "O_RDONLY"))
+(constant (EWOULDBLOCK "EWOULDBLOCK"))
+(constant (EPIPE "EPIPE"))
+(constant (EINTR "EINTR"))
+(constant (EPROTO "EPROTO"))
+(constant (ECONNABORTED "ECONNABORTED"))
+(constant (ECONNREFUSED "ECONNREFUSED"))
+(constant (ECONNRESET "ECONNRESET"))
+(constant (ENOTCONN "ENOTCONN"))
+(constant (EAGAIN "EAGAIN"))
+</file>
+
+<file path="src/ev.lisp">
+(in-package :cl-user)
+(defpackage woo.ev
+  (:nicknames :wev)
+  (:use :cl)
+  (:import-from :woo.ev.tcp
+                :tcp-server
+                :close-tcp-server
+                :with-sockaddr
+                :*connection-timeout*)
+  (:import-from :woo.ev.socket
+                :socket
+                :socket-open-p
+                :socket-remote-addr
+                :socket-remote-port
+                :socket-data
+                :close-socket
+                :write-socket-data
+                :write-socket-byte
+                :write-socket-stream
+                :flush-buffer
+                :with-async-writing)
+  (:import-from :woo.ev.event-loop
+                :with-event-loop
+                :*buffer-size*
+                :*evloop*
+                :*data-registry*)
+  (:import-from :woo.ev.condition
+                :tcp-error
+                :socket-closed)
+  (:export :socket
+           :socket-open-p
+           :socket-remote-addr
+           :socket-remote-port
+           :with-event-loop
+           :tcp-server
+           :close-tcp-server
+           :write-socket-data
+           :write-socket-byte
+           :write-socket-stream
+           :with-async-writing
+           :socket-data
+           :close-socket
+           :*buffer-size*
+           :*connection-timeout*
+           :*evloop*
+           :*data-registry*
+           :with-sockaddr
+
+           ;; conditions
+           :tcp-error
+           :socket-closed))
+(in-package :woo.ev)
+</file>
+
+<file path="src/queue.lisp">
+(in-package :cl-user)
+(defpackage woo.queue
+  (:use :cl)
+  #+sbcl
+  (:import-from :sb-concurrency
+                :make-queue
+                :queue-empty-p
+                :enqueue
+                :dequeue)
+  (:export :make-queue
+           :queue-empty-p
+           :enqueue
+           :dequeue))
+(in-package :woo.queue)
+
+#-sbcl
+(progn
+  (defstruct queue
+    (raw-queue (cl-speedy-queue:make-queue 128))
+    (lock (bt2:make-lock)))
+
+  (defun enqueue (object queue)
+    (with-slots (raw-queue lock) queue
+      (bt2:with-lock-held (lock)
+        (cl-speedy-queue:enqueue object raw-queue))))
+
+  (defun dequeue (queue)
+    (with-slots (raw-queue lock) queue
+      (bt2:with-lock-held (lock)
+        (cl-speedy-queue:dequeue raw-queue))))
+
+  (defun queue-empty-p (queue)
+    (cl-speedy-queue:queue-empty-p (queue-raw-queue queue))))
+</file>
+
+<file path="src/response.lisp">
+(in-package :cl-user)
+(defpackage woo.response
+  (:use :cl)
+  (:import-from :trivial-utf-8
+                :string-to-utf-8-bytes
+                :utf-8-byte-length)
+  (:export :*empty-chunk*
+           :*empty-bytes*
+           :*crlf*
+           :write-socket-string
+           :write-socket-crlf
+           :response-headers-bytes
+           :write-response-headers
+           :write-body-chunk
+           :write-string-body-chunk
+           :start-chunked-response
+           :finish-response))
+(in-package :woo.response)
+
+(declaim (inline wev:write-socket-data wev:write-socket-byte))
+
+(defun status-code-to-text (code)
+  (cond
+    ((< code 200)
+     (case code
+       (100 "Continue")
+       (101 "Switching Protocols")
+       (102 "Processing")))
+    ((< code 300)
+     (case code
+       (200 "OK")
+       (201 "Created")
+       (202 "Accepted")
+       (203 "Non-Authoritative Information")
+       (204 "No Content")
+       (205 "Reset Content")
+       (206 "Partial Content")
+       (207 "Multi-Status")
+       (208 "Already Reported")
+       (226 "IM Used")))
+    ((< code 400)
+     (case code
+       (300 "Multiple Choices")
+       (301 "Moved Permanently")
+       (302 "Found")
+       (303 "See Other")
+       (304 "Not Modified")
+       (305 "Use Proxy")
+       (307 "Temporary Redirect")
+       (308 "Permanent Redirect")))
+    ((< code 500)
+     (case code
+       (400 "Bad Request")
+       (401 "Unauthorized")
+       (402 "Payment Required")
+       (403 "Forbidden")
+       (404 "Not Found")
+       (405 "Method Not Allowed")
+       (406 "Not Acceptable")
+       (407 "Proxy Authentication Required")
+       (408 "Request Time-out")
+       (409 "Conflict")
+       (410 "Gone")
+       (411 "Length Required")
+       (412 "Precondition Failed")
+       (413 "Request Entity Too Large")
+       (414 "Request-URI Too Large")
+       (415 "Unsupported Media Type")
+       (416 "Requested range not satisfiable")
+       (417 "Expectation Failed")
+       (418 "I'm a teapot")
+       (421 "Misdirected Request")
+       (422 "Unprocessable Entity")
+       (423 "Locked")
+       (424 "Failed Dependency")
+       (426 "Upgrade Required")
+       (451 "Unavailable For Legal Reasons")))
+    (T
+     (case code
+       (500 "Internal Server Error")
+       (501 "Not Implemented")
+       (502 "Bad Gateway")
+       (503 "Service Unavailable")
+       (504 "Gateway Time-out")
+       (505 "HTTP Version not supported")
+       (506 "Variant Also Negotiates")
+       (507 "Insufficient Storage")
+       (508 "Loop Detected")
+       (509 "Bandwidth Limit Exceeded")
+       (510 "Not Extended")))))
+
+(defvar *status-line* (make-hash-table :test 'eql))
+
+(defun http/1.1 (code)
+  (let ((status-text (status-code-to-text code)))
+    (when status-text
+      (format nil "HTTP/1.1 ~A ~A~C~C"
+              code
+              status-text
+              #\Return
+              #\Linefeed))))
+
+(loop for status from 100 to 510
+      for status-line = (http/1.1 status)
+      when status-line
+        do (setf (gethash status *status-line*)
+                 (trivial-utf-8:string-to-utf-8-bytes status-line)))
+
+(defvar *empty-chunk*
+  #.(trivial-utf-8:string-to-utf-8-bytes (format nil "0~C~C~C~C"
+                                                 #\Return #\Linefeed
+                                                 #\Return #\Linefeed)))
+
+(defvar *empty-bytes*
+  #.(trivial-utf-8:string-to-utf-8-bytes ""))
+
+(defvar *crlf*
+  (trivial-utf-8:string-to-utf-8-bytes (format nil "~C~C" #\Return #\Linefeed)))
+
+(declaim (inline write-socket-string write-socket-crlf))
+
+(defun write-socket-string (socket string)
+  (declare (optimize (speed 3) (safety 0)))
+  (loop for char of-type character across string
+        do (wev:write-socket-byte socket (char-code char))))
+
+(defun write-socket-crlf (socket)
+  (declare (optimize (speed 3) (safety 0)))
+  (wev:write-socket-data socket *crlf*))
+
+(declaim (type (simple-array character (29)) *date-header*))
+(defvar *date-header*
+  (make-array 29
+              :element-type 'character
+              :initial-contents "Thu, 01 Jan 1970 00:00:00 GMT"))
+
+(declaim (inline integer-to-character))
+(defun integer-to-character (int)
+  (declare (type fixnum int)
+           (optimize (speed 3) (safety 0)))
+  (the character (code-char (+ 48 int))))
+
+(defun current-rfc-1123-timestamp ()
+  (declare (optimize (speed 3) (safety 0)))
+  (macrolet ((write-date (val start &optional (len '*))
+               `(replace *date-header*
+                         (the (simple-array character (,len)) ,val)
+                         :start1 ,start))
+             (write-char-to-date (char idx)
+               `(setf (aref *date-header* ,idx) ,char))
+             (write-int-to-date (val start)
+               (check-type start integer)
+               `(if (< ,val 10)
+                    (progn
+                      (write-char-to-date #\0 ,start)
+                      (write-char-to-date (integer-to-character ,val) ,(1+ start)))
+                    (multiple-value-bind (quotient remainder)
+                        (floor ,val 10)
+                      (write-char-to-date (integer-to-character quotient) ,start)
+                      (write-char-to-date (integer-to-character remainder) ,(1+ start))))))
+    (multiple-value-bind (sec minute hour day month year weekday)
+        (decode-universal-time (get-universal-time) 0)
+      (declare (type fixnum sec minute hour day month year weekday))
+      (write-date (svref #("Mon" "Tue" "Wed" "Thu" "Fri" "Sat" "Sun") weekday)
+                  0 3)
+      (write-int-to-date day 5)
+      (write-date (svref #("" "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec")
+                         month)
+                  8 3)
+      (multiple-value-bind (quotient remainder)
+          (floor (the (unsigned-byte 64) year) 1000)
+        (write-char-to-date (integer-to-character quotient) 12)
+        (multiple-value-bind (quotient remainder)
+            (floor remainder 100)
+          (write-char-to-date (integer-to-character quotient) 13)
+          (multiple-value-bind (quotient remainder)
+              (floor remainder 10)
+            (write-char-to-date (integer-to-character quotient) 14)
+            (write-char-to-date (integer-to-character remainder) 15))))
+      (write-int-to-date hour 17)
+      (write-int-to-date minute 20)
+      (write-int-to-date sec 23)))
+  *date-header*)
+
+(defun response-headers-bytes (socket status headers &optional keep-alive-p)
+  (wev:write-socket-data socket (gethash status *status-line*))
+  ;; Send default headers
+  (wev:write-socket-data socket #.(string-to-utf-8-bytes "Date: "))
+  (write-socket-string socket (the simple-string (current-rfc-1123-timestamp)))
+  (write-socket-crlf socket)
+
+  (when keep-alive-p
+    (wev:write-socket-data
+     socket
+     #.(string-to-utf-8-bytes
+        (format nil "Connection: keep-alive~C~C" #\Return #\Linefeed))))
+
+  (loop for (k v) on headers by #'cddr
+        when v
+          do (write-socket-string socket (format nil "~:(~A~): ~A" k v))
+             (write-socket-crlf socket)))
+
+(defun write-response-headers (socket status headers &optional keep-alive-p)
+  (response-headers-bytes socket status headers keep-alive-p)
+  (write-socket-crlf socket))
+
+(defun write-body-chunk (socket chunk &key (start 0) (end (length chunk)))
+  (declare (optimize speed)
+           (type fixnum start end)
+           (type vector chunk))
+  (unless (= start end)
+    (wev:write-socket-data socket (map '(simple-array (unsigned-byte 8) (*))
+                                       #'char-code
+                                       (format nil "~X~C~C" (the fixnum (- end start)) #\Return #\Linefeed)))
+    (wev:write-socket-data socket chunk :start start :end end)
+    (wev:write-socket-data socket *crlf*)))
+
+(defun write-string-body-chunk (socket chunk)
+  (declare (optimize speed)
+           (type string chunk))
+  (unless (= 0 (length chunk))
+    (wev:write-socket-data socket (map '(simple-array (unsigned-byte 8) (*))
+                                       #'char-code
+                                       (format nil "~X~C~C" (utf-8-byte-length chunk) #\Return #\Linefeed)))
+    (write-socket-string socket chunk)
+    (wev:write-socket-data socket *crlf*)))
+
+(defun finish-response (socket &optional (body *empty-bytes*))
+  (wev:write-socket-data socket body
+                         :write-cb (lambda (socket)
+                                     (wev:close-socket socket))))
+
+(declaim (notinline wev:write-socket-data wev:write-socket-byte))
+</file>
+
+<file path="src/signal.lisp">
+(in-package :cl-user)
+(defpackage woo.signal
+  (:use :cl
+        :woo.specials)
+  (:import-from :woo.worker
+                :stop-cluster
+                :kill-cluster)
+  (:import-from :woo.ev
+                :close-socket
+                :*data-registry*)
+  (:export :make-signal-watchers
+           :start-signal-watchers
+           :stop-signal-watchers))
+(in-package :woo.signal)
+
+(defvar *signals*
+  '((2 . sigint-cb)
+    (3 . sigquit-cb)
+    (15 . sigint-cb)))
+
+(cffi:defcallback sigquit-cb :void ((evloop :pointer) (signal :pointer) (events :int))
+  (declare (ignore signal events))
+  (vom:info "Terminating quiet workers...")
+  (lev:ev-io-stop evloop *listener*)
+  (if *cluster*
+      (woo.worker:stop-cluster *cluster*)
+      ;; Close existing all sockets for singlethreaded process.
+      (maphash (lambda (fd socket)
+                 (declare (ignore fd))
+                 (wev:close-socket socket))
+               wev:*data-registry*))
+  (lev:ev-break evloop lev:+EVBREAK-ALL+))
+
+(cffi:defcallback sigint-cb :void ((evloop :pointer) (signal :pointer) (events :int))
+  (declare (ignore signal events))
+  (vom:info "Terminating workers immediately...")
+  (lev:ev-io-stop evloop *listener*)
+  (if *cluster*
+      (woo.worker:kill-cluster *cluster*)
+      (maphash (lambda (fd socket)
+                 (declare (ignore fd))
+                 (wev:close-socket socket))
+               wev:*data-registry*))
+  (lev:ev-break evloop lev:+EVBREAK-ALL+))
+
+(defun make-signal-watchers ()
+  (let* ((watcher-count (length *signals*))
+         (watchers
+           (make-array watcher-count)))
+    (dotimes (i watcher-count watchers)
+      (setf (aref watchers i) (cffi:foreign-alloc '(:struct lev:ev-signal))))))
+
+(defun start-signal-watchers (evloop watchers)
+  (loop for (sig . cb) in *signals*
+        for i from 0
+        do (lev:ev-signal-init (aref watchers i) cb sig)
+           (lev:ev-signal-start evloop (aref watchers i))))
+
+(defun stop-signal-watchers (evloop watchers)
+  (map nil (lambda (watcher)
+             (lev:ev-signal-stop evloop watcher)
+             (cffi:foreign-free watcher))
+       watchers))
+</file>
+
+<file path="src/specials.lisp">
+(in-package :cl-user)
+(defpackage woo.specials
+  (:use :cl)
+  (:export :*app*
+           :*debug*
+           :*listener*
+           :*cluster*
+           :default-thread-bindings))
+(in-package :woo.specials)
+
+(defvar *app* nil)
+(defvar *debug* nil)
+(defun default-thread-bindings ()
+  `((*standard-output* . ,*standard-output*)
+    (*error-output* . ,*error-output*)
+    (*app* . ,*app*)
+    (*debug* . ,*debug*)))
+
+(defvar *listener* nil)
+(defvar *cluster* nil)
+</file>
+
+<file path="src/ssl.lisp">
+(defpackage woo.ssl
+  (:use :cl)
+  (:import-from :cl+ssl
+                :with-new-ssl
+                :install-nonblock-flag
+                :ssl-set-fd
+                :ssl-set-accept-state
+                :*default-cipher-list*
+                :ssl-set-cipher-list
+                :with-pem-password
+                :install-key-and-cert)
+  (:import-from :woo.ev.socket
+                :socket-fd
+                :socket-ssl-handle)
+  (:export :init-ssl-handle))
+(in-package :woo.ssl)
+
+(defun init-ssl-handle (socket ssl-cert-file ssl-key-file ssl-key-password)
+  (let ((client-fd (socket-fd socket)))
+    (with-new-ssl (handle)
+      (install-nonblock-flag client-fd)
+      (ssl-set-fd handle client-fd)
+      (ssl-set-accept-state handle)
+      (when *default-cipher-list*
+        (ssl-set-cipher-list handle *default-cipher-list*))
+      (setf (socket-ssl-handle socket) handle)
+      (with-pem-password ((or ssl-key-password ""))
+        (install-key-and-cert
+         handle
+         ssl-key-file
+         ssl-cert-file))
+      socket)))
+</file>
+
+<file path="src/util.lisp">
+(in-package :cl-user)
+(defpackage woo.util
+  (:use #:cl))
+(in-package :woo.util)
+
+(defun integer-string-p (string)
+  (declare (type #+ecl string #-ecl simple-string string)
+           (optimize (speed 3) (safety 2)))
+  (when (zerop (length string))
+    (return-from integer-string-p nil))
+  (locally (declare (optimize (safety 0)))
+    (let ((end (length string)))
+      (declare (type integer end))
+      (do ((i 0 (1+ i)))
+        ((= i end) t)
+        (declare (type integer i))
+        (let ((char (aref string i)))
+          (declare (type character char))
+          (unless (char<= #\0 char #\9)
+            (return-from integer-string-p nil)))))))
+</file>
+
+<file path="src/woo.lisp">
+(in-package :cl-user)
+(defpackage woo
+  (:nicknames :clack.handler.woo)
+  (:use :cl
+        :woo.specials
+        :woo.signal)
+  (:import-from :woo.response
+                :*empty-chunk*
+                :write-socket-string
+                :write-socket-crlf
+                :response-headers-bytes
+                :write-response-headers
+                :write-body-chunk
+                :write-string-body-chunk
+                :finish-response)
+  (:import-from :woo.ev
+                :*buffer-size*
+                :*connection-timeout*
+                :*evloop*
+                :socket-remote-addr
+                :socket-remote-port
+                :with-sockaddr)
+  #-woo-no-ssl
+  (:import-from :woo.ssl)
+  (:import-from :woo.util
+                :integer-string-p)
+  (:import-from :quri
+                :uri
+                :uri-path
+                :uri-query)
+  (:import-from :fast-http
+                :make-http-request
+                :make-parser
+                :http-method
+                :http-resource
+                :http-headers
+                :http-major-version
+                :http-minor-version
+                :parsing-error
+                :fast-http-error)
+  (:import-from :smart-buffer
+                :make-smart-buffer
+                :write-to-buffer
+                :finalize-buffer)
+  (:import-from :trivial-utf-8
+                :string-to-utf-8-bytes
+                :utf-8-bytes-to-string
+                :utf-8-byte-length)
+  (:import-from :alexandria
+                :hash-table-plist
+                :copy-stream
+                :if-let)
+  (:export :run
+           :stop
+           :*buffer-size*
+           :*connection-timeout*
+           :*default-backlog-size*
+           :*default-worker-num*))
+(in-package :woo)
+
+(defvar *default-backlog-size* 128)
+(defvar *default-worker-num* nil)
+
+(defun run (app &key (debug t)
+                     (port 5000) (address "127.0.0.1")
+                     listen ;; UNIX domain socket
+                     (backlog *default-backlog-size*) fd
+                     (worker-num *default-worker-num*)
+                     ssl-key-file
+                     ssl-cert-file
+                     ssl-key-password)
+  (declare (ignorable ssl-key-password))
+  (assert (and (integerp backlog)
+               (plusp backlog)
+               (<= backlog 128)))
+  (assert (or (and (integerp worker-num)
+                   (< 0 worker-num))
+              (null worker-num)))
+  (when (stringp listen)
+    (setf listen (pathname listen)))
+  (check-type listen (or pathname null))
+
+  (let ((*app* app)
+        (*debug* debug)
+        (*listener* nil)
+        (ssl (or ssl-key-file ssl-cert-file)))
+    (labels ((start-socket (socket)
+               #-woo-no-ssl
+               (when ssl
+                 (woo.ssl:init-ssl-handle socket
+                                          ssl-cert-file
+                                          ssl-key-file
+                                          ssl-key-password))
+               (setup-parser socket)
+               (woo.ev.tcp:start-listening-socket socket))
+             (start-multithread-server ()
+               (unless (getf vom::*config* :woo.signal)
+                 (vom:config :woo.signal :info))
+               (let ((*cluster* (woo.worker:make-cluster worker-num #'start-socket))
+                     (signal-watchers (make-signal-watchers)))
+                 (wev:with-sockaddr
+                   (unwind-protect
+                        (wev:with-event-loop (:cleanup-fn
+                                              (lambda ()
+                                                (stop-signal-watchers *evloop* signal-watchers)))
+                          (start-signal-watchers *evloop* signal-watchers)
+                          (setq *listener*
+                                (wev:tcp-server (or listen
+                                                    (cons address port))
+                                                #'read-cb
+                                                :connect-cb
+                                                (lambda (socket)
+                                                  (woo.worker:add-job-to-cluster *cluster* socket))
+                                                :backlog backlog
+                                                :fd fd
+                                                :sockopt wsock:+SO-REUSEADDR+)))
+                     (wev:close-tcp-server *listener*)
+                     (woo.worker:stop-cluster *cluster*)))))
+             (start-singlethread-server ()
+               (let ((signal-watchers (make-signal-watchers)))
+                 (wev:with-sockaddr
+                   (unwind-protect
+                        (wev:with-event-loop (:cleanup-fn
+                                              (lambda ()
+                                                (stop-signal-watchers *evloop* signal-watchers)))
+                          (start-signal-watchers *evloop* signal-watchers)
+                          (setq *listener*
+                                (wev:tcp-server (or listen
+                                                    (cons address port))
+                                                #'read-cb
+                                                :connect-cb #'start-socket
+                                                :backlog backlog
+                                                :fd fd
+                                                :sockopt wsock:+SO-REUSEADDR+)))
+                     (wev:close-tcp-server *listener*))))))
+      (when ssl
+        #+woo-no-ssl
+        (warn "SSL certificate is specified but Woo's SSL feature is off. Ignored.")
+        #-woo-no-ssl
+        (progn
+          (cl+ssl::ensure-initialized)
+          (when ssl-key-file
+            (setf ssl-key-file
+                  (uiop:native-namestring
+                   (or (probe-file ssl-key-file)
+                       (error "SSL private key file '~A' does not exist." ssl-key-file)))))
+          (when ssl-cert-file
+            (setf ssl-cert-file
+                  (uiop:native-namestring
+                   (or (probe-file ssl-cert-file)
+                       (error "SSL certificate '~A' does not exist." ssl-cert-file)))))))
+      (if worker-num
+          (start-multithread-server)
+          (start-singlethread-server)))))
+
+(defun read-cb (socket data &key (start 0) (end (length data)))
+  (let ((parser (wev:socket-data socket)))
+    (handler-case (funcall parser data :start start :end end)
+      (fast-http:parsing-error (e)
+        (vom:error "HTTP parse error: ~A" e)
+        (let ((body #.(map '(simple-array (unsigned-byte 8) (*))
+                           #'char-code
+                           "400 Bad Request")))
+          (wev:with-async-writing (socket :write-cb #'wev:close-socket)
+            (write-response-headers socket 400
+                                    (list :connection "close"
+                                          :content-length (length body)))
+            (wev:write-socket-data socket body)))))))
+
+(define-condition woo-error (simple-error) ())
+(define-condition invalid-http-version (woo-error) ())
+
+(defun error-invalid-http-version (major minor)
+  (error 'invalid-http-version
+           :format-control "INVALID-HTTP-VERSION: major ~A minor ~A"
+           :format-arguments (list major minor)))
+
+(defun http-version-keyword (major minor)
+  (unless (= major 1)
+    (error-invalid-http-version major minor))
+  (case minor
+    (1 :HTTP/1.1)
+    (0 :HTTP/1.0)
+    (otherwise (error-invalid-http-version major minor))))
+
+(defun setup-parser (socket)
+  (let ((http (make-http-request))
+        (body-buffer (make-smart-buffer)))
+    (setf (wev:socket-data socket)
+          (make-parser http
+                       :body-callback
+                       (lambda (data start end)
+                         (declare (type (simple-array (unsigned-byte 8) (*)) data))
+                         (if (smart-buffer::buffer-on-memory-p body-buffer)
+                             (write-to-buffer body-buffer (subseq data start end) 0 (- end start))
+                             (write-to-buffer body-buffer data start end)))
+                       :finish-callback
+                       (flet ((main (env)
+                                (handle-response http socket
+                                                 (if *debug*
+                                                     (funcall *app* env)
+                                                     (if-let (res (handler-case (funcall *app* env)
+                                                                    (error (error)
+                                                                      (vom:error (princ-to-string error))
+                                                                      nil)))
+                                                             res
+                                                             '(500 nil nil))))))
+                         (lambda ()
+                           (block result
+                             (let ((raw-body (finalize-buffer body-buffer)))
+                               (setq body-buffer (make-smart-buffer))
+                               (handler-bind
+                                   ((error ;; handle errors inside woo
+                                      (lambda (e)
+                                        (unless *debug*
+                                          (vom:crit (princ-to-string e))
+                                          (return-from result (handle-response http socket '(500 nil nil)))))))
+                                 (let ((env (nconc (list :raw-body raw-body)
+                                                   (handle-request http socket))))
+                                   (main env)))))))))))
+
+(defun stop (server)
+  (wev:close-tcp-server server))
+
+
+;;
+;; Handling requests
+
+(defun parse-host-header (host)
+  (declare (type simple-string host)
+           (optimize (speed 3) (safety 0)))
+  (let ((pos (position #\: host :from-end t)))
+    (unless pos
+      (return-from parse-host-header
+        (values host nil)))
+
+    (locally (declare (type fixnum pos))
+      (let ((port (loop with port of-type fixnum = 0
+                        for i from (1+ pos) to (1- (length host))
+                        for char = (aref host i)
+                        do (if (digit-char-p char)
+                               (setq port (+ (* 10 port)
+                                             (- (char-code char) (char-code #\0))))
+                               (return nil))
+                        finally
+                           (return port))))
+        (if port
+            (values (subseq host 0 pos)
+                    port)
+            (values host nil))))))
+
+(defun handle-request (http socket)
+  (let ((host (gethash "host" (http-headers http)))
+        (headers (http-headers http))
+        (uri (http-resource http)))
+    (declare (type simple-string uri))
+
+    (multiple-value-bind (scheme userinfo hostname port path query fragment)
+        (quri:parse-uri uri)
+      (declare (ignore scheme userinfo hostname port fragment))
+      (multiple-value-bind (server-name server-port)
+          (if (stringp host)
+              (parse-host-header host)
+              (values nil nil))
+        (list :request-method (http-method http)
+              :script-name ""
+              :server-name server-name
+              :server-port (or server-port 80)
+              :server-protocol (http-version-keyword (http-major-version http) (http-minor-version http))
+              :path-info (if (and (stringp path)
+                                  (string/= path ""))
+                             (quri:url-decode path :lenient t)
+                             "/")
+              :query-string query
+              :url-scheme "http"
+              :remote-addr (socket-remote-addr socket)
+              :remote-port (socket-remote-port socket)
+              :request-uri uri
+              :clack.streaming t
+              :clack.nonblocking t
+              :clack.io socket
+              :content-length (let ((content-length (gethash "content-length" headers)))
+                                (etypecase content-length
+                                  (string (if (integer-string-p content-length)
+                                              (parse-integer content-length)
+                                              (error "Invalid Content-Length header: ~S" content-length)))
+                                  (integer content-length)
+                                  (null nil)))
+              :content-type (gethash "content-type" headers)
+              :headers headers)))))
+
+
+;;
+;; Handling responses
+
+(defun handle-response (http socket clack-res)
+  (handler-case
+      (etypecase clack-res
+        (list (handle-normal-response http socket clack-res))
+        (function (funcall clack-res (lambda (clack-res)
+                                       (handler-case
+                                           (handle-normal-response http socket clack-res)
+                                         (wev:socket-closed ()))))))
+    (wev:tcp-error (e)
+      (vom:error (princ-to-string e)))))
+
+#+sbcl
+(defvar *stat* (make-instance 'sb-posix:stat))
+#+sbcl
+(defun fd-file-size (fd)
+  (sb-posix:fstat fd *stat*)
+  (sb-posix:stat-size *stat*))
+#+ccl
+(defun fd-file-size (fd)
+  (multiple-value-bind (successp mode size)
+      (ccl::%fstat fd)
+    (declare (ignore mode))
+    (unless successp
+      (error "'fstat' failed"))
+    size))
+#+lispworks
+(defun file-size (path)
+  (sys:file-size path))
+#-(or sbcl ccl lispworks)
+(defun file-size (path)
+  (with-open-file (in path)
+    (file-length in)))
+
+(defun make-streaming-writer (socket)
+  (lambda (body &key (start 0 has-start) (end nil has-end) (close nil))
+    (if body
+        (wev:with-async-writing (socket :force-streaming t)
+          (etypecase body
+            (string
+             (write-string-body-chunk socket
+                                      (if (or has-start has-end)
+                                          (subseq body start end)
+                                          body)))
+            (vector (write-body-chunk socket body
+                                      :start start
+                                      :end (or end (length body)))))
+          (when close
+            (finish-response socket *empty-chunk*)))
+        (when close
+          (wev:with-async-writing (socket)
+            (finish-response socket *empty-chunk*))))))
+
+(defun list-body-chunk-to-octets (chunk)
+  (typecase chunk
+    (string (string-to-utf-8-bytes chunk))
+    (null)
+    (otherwise
+     (warn "Invalid data in Clack response: ~S" chunk))))
+
+(defun handle-normal-response (http socket clack-res)
+  (let ((no-body '#:no-body)
+        (close (or (= (http-minor-version http) 0)
+                   (string-equal (gethash "connection" (http-headers http)) "close"))))
+    (destructuring-bind (status headers &optional (body no-body))
+        clack-res
+      (when (eq body no-body)
+        (setf (getf headers :transfer-encoding) "chunked")
+        (setf (getf headers :content-length) nil)
+        (wev:with-async-writing (socket)
+          (write-response-headers socket status headers))
+        (return-from handle-normal-response
+          (make-streaming-writer socket)))
+
+      (etypecase body
+        (null
+         (wev:with-async-writing (socket :write-cb (and close
+                                                        (lambda (socket)
+                                                          (wev:close-socket socket))))
+           (unless (= status 304)
+             (setf (getf headers :content-length) 0))
+           (write-response-headers socket status headers (not close))))
+        (pathname
+         (cond
+           ((woo.ev.socket:socket-ssl-handle socket)
+            (with-open-file (in body :element-type '(unsigned-byte 8))
+              (let ((size (file-length in)))
+                (unless (getf headers :content-length)
+                  (setf (getf headers :content-length) size))
+                (unless (getf headers :content-type)
+                  (setf (getf headers :content-type) (mimes:mime body)))
+                (wev:with-async-writing (socket :write-cb (and close
+                                                               (lambda (socket)
+                                                                 (wev:close-socket socket))))
+                  (write-response-headers socket status headers (not close))
+                  ;; Future task: Use OpenSSL's SSL_sendfile which uses Kernel TLS.
+                  (wev:write-socket-stream socket in)))))
+           (t
+            (let* ((fd (wsys:open body))
+                   (size #+lispworks (sys:file-size body)
+                         #+(or sbcl ccl) (fd-file-size fd)
+                         #-(or sbcl ccl lispworks) (file-size body)))
+              (unless (getf headers :content-length)
+                (setf (getf headers :content-length) size))
+              (unless (getf headers :content-type)
+                (setf (getf headers :content-type) (mimes:mime body)))
+              (wev:with-async-writing (socket :write-cb (and close
+                                                             (lambda (socket)
+                                                               (wev:close-socket socket))))
+                (write-response-headers socket status headers (not close))
+                (woo.ev.socket:send-static-file socket fd size))))))
+        (list
+         (wev:with-async-writing (socket :write-cb (and close
+                                                        (lambda (socket)
+                                                          (wev:close-socket socket))))
+           (cond
+             ((getf headers :content-length)
+              (response-headers-bytes socket status headers (not close))
+              (write-socket-crlf socket)
+              (loop for chunk in body
+                    for data = (list-body-chunk-to-octets chunk)
+                    when data
+                      do (wev:write-socket-data socket data)))
+             (t
+              (cond
+                ((= (http-minor-version http) 1)
+                 ;; Transfer-Encoding: chunked
+                 (response-headers-bytes socket status headers (not close))
+                 (wev:write-socket-data socket #.(string-to-utf-8-bytes "Transfer-Encoding: chunked"))
+                 (write-socket-crlf socket)
+                 (write-socket-crlf socket)
+                 (loop for chunk in body
+                       for data = (list-body-chunk-to-octets chunk)
+                       when (and data (/= 0 (length data)))
+                         do (write-socket-string socket (the simple-string (format nil "~X" (length data))))
+                            (write-socket-crlf socket)
+                            (wev:write-socket-data socket data)
+                            (write-socket-crlf socket))
+                 (wev:write-socket-byte socket #.(char-code #\0))
+                 (write-socket-crlf socket)
+                 (write-socket-crlf socket))
+                (t
+                 ;; calculate Content-Length
+                 (response-headers-bytes socket status headers (not close))
+                 (wev:write-socket-data socket #.(string-to-utf-8-bytes "Content-Length: "))
+                 (write-socket-string
+                  socket
+                  (write-to-string (loop for chunk in body
+                                         sum (if (stringp chunk)
+                                                 (utf-8-byte-length chunk)
+                                                 0))))
+                 (write-socket-crlf socket)
+                 (write-socket-crlf socket)
+                 (loop for chunk in body
+                       for data = (list-body-chunk-to-octets chunk)
+                       when data
+                         do (wev:write-socket-data socket data))))))))
+        ((vector (unsigned-byte 8))
+         (wev:with-async-writing (socket :write-cb (and close
+                                                        (lambda (socket)
+                                                          (wev:close-socket socket))))
+           (response-headers-bytes socket status headers (not close))
+           (unless (getf headers :content-length)
+             (wev:write-socket-data socket #.(string-to-utf-8-bytes "Content-Length: "))
+             (write-socket-string socket (write-to-string (length body)))
+             (write-socket-crlf socket))
+           (write-socket-crlf socket)
+           (wev:write-socket-data socket body)))))))
+
+(defmethod clack.socket:read-callback ((socket woo.ev.socket:socket))
+  (wev:socket-data socket))
+
+(defmethod (setf clack.socket:read-callback) (callback (socket woo.ev.socket:socket))
+  (setf (wev:socket-data socket) callback))
+
+(defmethod clack.socket:write-sequence-to-socket ((socket woo.ev.socket:socket) data &key callback)
+  (woo.ev.socket:check-socket-open socket)
+  (wev:with-async-writing (socket :write-cb (and callback
+                                                 (lambda (socket)
+                                                   (declare (ignore socket))
+                                                   (funcall callback))))
+    (wev:write-socket-data socket data)))
+
+(defmethod clack.socket:write-byte-to-socket ((socket woo.ev.socket:socket) byte &key callback)
+  (woo.ev.socket:check-socket-open socket)
+  (wev:with-async-writing (socket :write-cb (and callback
+                                                 (lambda (socket)
+                                                   (declare (ignore socket))
+                                                   (funcall callback))))
+    (wev:write-socket-byte socket byte)))
+
+(defmethod clack.socket:write-sequence-to-socket-buffer ((socket woo.ev.socket:socket) data)
+  (wev:write-socket-data socket data))
+
+(defmethod clack.socket:write-byte-to-socket-buffer ((socket woo.ev.socket:socket) byte)
+  (wev:write-socket-byte socket byte))
+
+(defmethod clack.socket:flush-socket-buffer ((socket woo.ev.socket:socket) &key callback)
+  (woo.ev.socket:check-socket-open socket)
+  (wev:with-async-writing (socket :write-cb (and callback
+                                                 (lambda (socket)
+                                                   (declare (ignore socket))
+                                                   (funcall callback))))
+    nil))
+
+(defmethod clack.socket:close-socket ((socket woo.ev.socket:socket))
+  (when (woo.ev.socket:socket-open-p socket)
+    (woo.ev.socket:close-socket socket)))
+
+(defmethod clack.socket:socket-async-p ((socket woo.ev.socket:socket))
+  t)
+</file>
+
+<file path="src/worker.lisp">
+(in-package :cl-user)
+(defpackage woo.worker
+  (:use :cl
+        :woo.specials)
+  (:import-from :woo.ev
+                :*evloop*
+                :with-sockaddr)
+  (:import-from :woo.queue
+                :make-queue
+                :queue-empty-p
+                :enqueue
+                :dequeue)
+  (:export :make-cluster
+           :stop-cluster
+           :kill-cluster
+           :add-job-to-cluster))
+(in-package :woo.worker)
+
+(defparameter *worker* nil)
+
+(defvar *worker-counter* 0)
+
+(defstruct (worker (:constructor %make-worker))
+  (id (incf *worker-counter*))
+  (queue (make-queue))
+  evloop
+  dequeue-async
+  stop-async
+  process-fn
+  thread
+  (status :running))
+
+(defun add-job (worker job)
+  (enqueue job (worker-queue worker)))
+
+(defun notify-new-job (worker)
+  (lev:ev-async-send (worker-evloop worker) (worker-dequeue-async worker)))
+
+(defun stop-worker (worker)
+  (vom:debug "[~D] Stopping a worker..." (worker-id worker))
+  (with-slots (evloop stop-async status) worker
+    (setf status :stopping)
+    (lev:ev-async-send evloop stop-async)))
+
+(defun kill-worker (worker)
+  (vom:debug "[~D] Killing a worker..." (worker-id worker))
+  (with-slots (status thread) worker
+    (setf status :stopping)
+    (bt2:destroy-thread thread)))
+
+(cffi:defcallback worker-dequeue :void ((evloop :pointer) (listener :pointer) (events :int))
+  (declare (ignore evloop listener events))
+  (loop with queue = (worker-queue *worker*)
+        until (queue-empty-p queue)
+        for socket = (dequeue queue)
+        do (funcall (worker-process-fn *worker*) socket)))
+
+(cffi:defcallback worker-stop :void ((evloop :pointer) (listener :pointer) (events :int))
+  (declare (ignore listener events))
+  ;; Close existing all sockets.
+  (maphash (lambda (fd socket)
+             (declare (ignore fd))
+             (wev:close-socket socket))
+           wev:*data-registry*)
+
+  ;; Stop all events.
+  (lev:ev-break evloop lev:+EVBREAK-ALL+))
+
+(defun finalize-worker (worker)
+  (with-slots (evloop queue dequeue-async stop-async thread status) worker
+    (unless (queue-empty-p queue)
+      (if *cluster*
+          (loop until (queue-empty-p queue)
+                do (add-job-to-cluster *cluster* (dequeue queue)))
+          (vom:warn "Finalizing a worker having some jobs.")))
+
+    (cffi:foreign-free dequeue-async)
+    (cffi:foreign-free stop-async)
+    (setf evloop nil
+          dequeue-async nil
+          stop-async nil
+          thread nil
+          status :stopped)))
+
+(defun make-worker (process-fn when-died)
+  (let* ((dequeue-async (cffi:foreign-alloc '(:struct lev:ev-async)))
+         (stop-async (cffi:foreign-alloc '(:struct lev:ev-async)))
+         (worker (%make-worker :dequeue-async dequeue-async
+                               :stop-async stop-async
+                               :process-fn process-fn))
+         (worker-lock (bt2:make-lock)))
+    (lev:ev-async-init dequeue-async 'worker-dequeue)
+    (lev:ev-async-init stop-async 'worker-stop)
+    (setf (worker-thread worker)
+          (bt2:make-thread
+           (lambda ()
+             (bt2:acquire-lock worker-lock)
+             (let ((*worker* worker))
+               (wev:with-sockaddr
+                 (unwind-protect
+                      (wev:with-event-loop ()
+                        (setf (worker-evloop worker) *evloop*)
+                        (bt2:release-lock worker-lock)
+                        (lev:ev-async-start *evloop* dequeue-async)
+                        (lev:ev-async-start *evloop* stop-async))
+                   (unless (eq (worker-status worker) :stopping)
+                     (vom:debug "[~D] Worker has died" (worker-id worker))
+                     (funcall when-died worker))
+                   (finalize-worker worker)
+                   (vom:debug "[~D] Bye." (worker-id worker))))))
+           :initial-bindings (default-thread-bindings)
+           :name "woo-worker"))
+    (sleep 0.1)
+    (bt2:acquire-lock worker-lock)
+    worker))
+
+(defstruct (cluster (:constructor %make-cluster
+                        (&optional
+                           workers
+                         &aux
+                           (circular-workers
+                            (apply #'alexandria:circular-list workers)))))
+  (workers '() :read-only t)
+  (circular-workers '()))
+
+(defun (setf cluster-workers) (workers cluster)
+  (setf (slot-value cluster 'workers) workers)
+  (setf (cluster-circular-workers cluster)
+        (apply #'alexandria:circular-list workers)))
+
+(defun add-job-to-cluster (cluster job)
+  (let* ((workers (cluster-circular-workers cluster))
+         (worker (car workers)))
+    (add-job worker job)
+    (notify-new-job worker)
+    (setf (cluster-circular-workers cluster)
+          (cdr workers))))
+
+(defun make-cluster (worker-num process-fn)
+  (let ((cluster (%make-cluster)))
+    (labels ((make-new-worker ()
+               (vom:debug "Starting a new worker...")
+               (make-worker process-fn
+                            (lambda (worker)
+                              (setf (cluster-workers cluster)
+                                    (cons (make-new-worker)
+                                          (remove worker (cluster-workers cluster) :test #'eq)))))))
+      (setf (cluster-workers cluster)
+            (loop repeat worker-num
+                  collect (make-new-worker))))
+    cluster))
+
+(defun cluster-running-workers (cluster)
+  (remove-if-not #'worker-thread (cluster-workers cluster)))
+
+(defun stop-cluster (cluster)
+  (let ((workers (cluster-running-workers cluster)))
+    (mapc #'stop-worker workers)
+    (loop repeat 100
+          while (find-if #'worker-thread workers)
+          do (sleep 0.1)
+          finally
+             (mapc #'kill-worker (cluster-running-workers cluster)))))
+
+(defun kill-cluster (cluster)
+  (mapc #'kill-worker (cluster-running-workers cluster)))
+</file>
+
+<file path="t/generate-certificates.sh">
+#!/bin/sh
+
+mkdir t/certs
+cd t/certs
+
+openssl genrsa -out localCA.key 2048
+openssl req -batch -new -key localCA.key -out localCA.csr \
+  -subj "/C=JP/ST=Tokyo/L=Chuo-ku/O=\"Woo\"/OU=Development/CN=localhost"
+openssl x509 -req -days 3650 -signkey localCA.key -in localCA.csr -out localCA.crt
+openssl x509 -text -noout -in localCA.crt
+openssl genrsa -out localhost.key 2048
+openssl req -batch -new -key localhost.key -out localhost.csr \
+  -subj "/C=JP/ST=Tokyo/L=Chuo-ku/O=\"Woo\"/OU=Development/CN=localhost"
+echo 'subjectAltName = DNS:localhost, DNS:localhost.localdomain, IP:127.0.0.1, DNS:app, DNS:app.localdomain' > localhost.csx
+openssl x509 -req -days 1825 -CA localCA.crt -CAkey localCA.key -CAcreateserial -in localhost.csr -extfile localhost.csx -out localhost.crt
+</file>
+
+<file path="t/ipv6.lisp">
+(in-package :cl-user)
+(defpackage woo-test.ipv6
+  (:use :cl
+        :rove)
+  (:import-from :clack.test
+                :testing-app
+                :*clackup-additional-args*)
+  (:import-from :clack.test.suite
+                :localhost))
+(in-package :woo-test.ipv6)
+
+(let ((clack.test:*clackup-additional-args* '(:address "::"))
+      (clack.test:*clack-test-handler* :woo))
+  (deftest ipv6-tests
+    (testing-app "IPv6"
+        (lambda (env)
+          (declare (ignore env))
+          '(200 (:content-type "text/plain") ("Hello" "World")))
+      (multiple-value-bind (body status)
+        (dex:get (localhost))
+        (ok (eql status 200))
+        (ok (equal body "HelloWorld"))))))
+</file>
+
+<file path="t/woo.lisp">
+(in-package :cl-user)
+(defpackage woo-test
+  (:use :cl
+        :rove))
+(in-package :woo-test)
+
+(deftest woo-server-tests
+  (clack.test.suite:run-server-tests :woo))
+
+(deftest woo-ssl-server-tests
+  (let ((clack.test:*clackup-additional-args*
+          '(:ssl-cert-file #P"t/certs/localhost.crt"
+            :ssl-key-file #P"t/certs/localhost.key"))
+        (dex:*not-verify-ssl* t)
+        (clack.test:*use-https* t))
+    (clack.test.suite:run-server-tests :woo)))
+</file>
+
+<file path=".gitignore">
+*.fasl
+*.dx32fsl
+*.dx64fsl
+*.lx32fsl
+*.lx64fsl
+*.x86f
+*~
+.#*
+roswell/woo
+benchmark/go/hello
+benchmark/benchmark.log
+.qlot/
+qlfile
+qlfile.lock
+t/certs/
+</file>
+
+<file path=".travis.yml">
+language: common-lisp
+sudo: required
+
+os:
+  - linux
+  - osx
+
+env:
+  global:
+    - PATH=~/.roswell/bin:$PATH
+    - ROSWELL_BRANCH=release
+    - ROSWELL_INSTALL_DIR=$HOME/.roswell
+    - WRK_VERSION=4.0.2
+  matrix:
+    - LISP=sbcl
+
+addons:
+  apt:
+    packages:
+      - libev-dev
+
+install:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install libev; fi
+  - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh
+
+  # wrk, go for benchmarking
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then
+      curl -L "https://github.com/wg/wrk/archive/$WRK_VERSION.tar.gz" | tar xzf -;
+      mkdir -p "$ROSWELL_INSTALL_DIR/bin";
+      (cd "wrk-$WRK_VERSION/" && make && cp wrk "$ROSWELL_INSTALL_DIR/bin");
+      sudo apt-get install golang;
+    fi
+
+  - ros install rove
+  - ros install cffi-grovel
+  - ros install fukamachi/fast-http
+  - ros install fukamachi/clack
+  - ros install fukamachi/dexador
+
+before_script:
+  - ros run -- --version
+
+script:
+  - ros -s woo-test
+  - rove woo-test.asd
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then benchmark/run-benchmark benchmark/woo/run; fi
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then benchmark/run-benchmark benchmark/go/run; fi
+</file>
+
+<file path="benchmark.md">
+# Benchmarks
+
+Comparison of the server performance to return "Hello, World" for every requests. Here's the results of requests/sec scores.
+
+![Benchmark Results](images/benchmark.png)
+
+Here's the new graph when using multiple CPU cores:
+
+![Benchmark Results (multicore)](images/benchmark-multicore.png)
+
+All benchmarks were done with the below command of [wrk](https://github.com/wg/wrk).
+
+```
+wrk -c [10 or 100] -t 4 -d 10 http://127.0.0.1:5000
+```
+
+The benchmarking environment is:
+
+* Sakura VPS 16GB (CPU: 8 Core / Memory: 16GB)
+* Ubuntu 16.04.2 LTS (GNU/Linux 4.4.0-36-generic)
+* wrk 4.0.0
+* nginx 1.10.0
+* Python 2.7.12
+* PyPy 5.1.2
+* Tornado 4.4.1
+* SBCL 1.3.9
+* Quicklisp 2016-08-25
+* Node.js 4.2.6
+* Go 1.6.2
+* Racket 6.12
+* Ruby 2.3.1p112
+* Unicorn 5.1.0
+* libuv 1.8.0
+* libev 4.22
+
+```
+$ cat /proc/version
+Linux version 4.4.0-36-generic (buildd@lcy01-01) (gcc version 5.4.0 20160609 (Ubuntu 5.4.0-6ubuntu1~16.04.2) ) #55-Ubuntu SMP Thu Aug 11 18:01:55 UTC 2016
+$ sudo apt-get install wrk nginx python2.7 python-pip pypy nodejs golang racket ruby ruby-dev libuv1-dev libev-dev
+$ sudo apt-get install -y autotools-dev automake libcurl4-gnutls-dev curl make
+$ pip install tornado
+$ sudo gem install unicorn rack
+```
+
+## Wookie (Common Lisp)
+
+```
+$ benchmark/run-benchmark benchmark/wookie/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     2.28ms    1.47ms  35.53ms   95.53%
+    Req/Sec     0.93k    73.03     1.11k    75.25%
+  37105 requests in 10.01s, 2.69MB read
+Requests/sec:   3707.70
+Transfer/sec:    275.18KB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    27.57ms    4.48ms  82.00ms   84.93%
+    Req/Sec     0.91k   131.34     1.77k    65.50%
+  36332 requests in 10.03s, 2.63MB read
+Requests/sec:   3622.04
+Transfer/sec:    268.82KB
+```
+
+## Tornado (Python)
+
+```
+$ benchmark/run-benchmark python2.7 benchmark/tornado/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     3.70ms  195.32us   6.61ms   93.77%
+    Req/Sec   542.43     16.24   626.00     52.75%
+  21605 requests in 10.01s, 4.27MB read
+Requests/sec:   2157.56
+Transfer/sec:    436.15KB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    47.30ms    2.72ms  80.61ms   95.09%
+    Req/Sec   529.76     61.37   696.00     84.25%
+  21100 requests in 10.04s, 4.17MB read
+Requests/sec:   2102.45
+Transfer/sec:    425.01KB
+```
+
+## Hunchentoot (Common Lisp)
+
+```
+$ benchmark/run-benchmark benchmark/hunchentoot/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.80ms  692.10us  15.53ms   98.18%
+    Req/Sec     1.12k    67.36     1.17k    92.52%
+  44589 requests in 10.10s, 7.48MB read
+Requests/sec:   4414.92
+Transfer/sec:    758.81KB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    28.87ms   93.72ms   1.61s    95.60%
+    Req/Sec     1.10k   275.26     1.74k    73.44%
+  40945 requests in 10.03s, 6.87MB read
+  Socket errors: connect 0, read 0, write 0, timeout 3
+Requests/sec:   4082.88
+Transfer/sec:    701.74KB
+```
+
+## Tornado (PyPy)
+
+```
+$ benchmark/run-benchmark pypy benchmark/tornado/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   706.99us  500.39us  15.64ms   99.32%
+    Req/Sec     2.94k   132.70     3.51k    92.80%
+  117746 requests in 10.10s, 23.24MB read
+Requests/sec:  11657.78
+Transfer/sec:      2.30MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     9.42ms    1.78ms  45.47ms   96.15%
+    Req/Sec     2.68k   256.60     3.01k    88.25%
+  106610 requests in 10.02s, 21.05MB read
+Requests/sec:  10636.27
+Transfer/sec:      2.10MB
+```
+
+## Node.js http module
+
+```
+$ benchmark/run-benchmark benchmark/node/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   655.88us   58.56us   3.40ms   96.02%
+    Req/Sec     3.06k    76.70     3.18k    81.93%
+  122947 requests in 10.10s, 15.24MB read
+Requests/sec:  12173.13
+Transfer/sec:      1.51MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     8.33ms  648.44us  20.02ms   90.64%
+    Req/Sec     3.02k   191.95     3.79k    72.25%
+  120074 requests in 10.02s, 14.89MB read
+Requests/sec:  11984.32
+Transfer/sec:      1.49MB
+```
+
+## Woo (Common Lisp)
+
+```
+$ benchmark/run-benchmark benchmark/woo/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   298.09us  280.55us  11.49ms   99.22%
+    Req/Sec     7.10k   595.38    15.62k    85.29%
+  283126 requests in 10.10s, 35.10MB read
+Requests/sec:  28032.34
+Transfer/sec:      3.48MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     2.60ms  594.86us  17.18ms   96.36%
+    Req/Sec     9.71k   715.15    15.16k    76.25%
+  386785 requests in 10.02s, 47.95MB read
+Requests/sec:  38591.20
+Transfer/sec:      4.78MB
+```
+
+## Go
+
+```
+$ benchmark/run-benchmark benchmark/go/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.09ms    7.09ms 111.96ms   98.27%
+    Req/Sec     7.89k     1.75k   21.69k    96.27%
+  315671 requests in 10.10s, 38.84MB read
+Requests/sec:  31253.92
+Transfer/sec:      3.84MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     3.24ms    1.86ms  20.24ms   62.52%
+    Req/Sec     7.82k     1.05k   27.62k    98.50%
+  312051 requests in 10.10s, 38.39MB read
+Requests/sec:  30897.12
+Transfer/sec:      3.80MB
+```
+
+## Hunchentoot (multi-threaded-taskmaster)
+
+```
+$ benchmark/run-benchmark benchmark/hunchentoot/run true
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   574.56us    2.16ms  50.15ms   96.26%
+    Req/Sec     7.38k     1.19k   10.46k    69.23%
+  295875 requests in 10.10s, 44.30MB read
+Requests/sec:  29294.85
+Transfer/sec:      4.39MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    12.36ms   52.93ms 943.13ms   97.07%
+    Req/Sec     8.13k     3.31k   19.63k    69.21%
+  322897 requests in 10.09s, 48.35MB read
+Requests/sec:  32007.10
+Transfer/sec:      4.79MB
+```
+
+## Unicorn + nginx (Ruby, worker_processes=4)
+
+nginx's worker\_processes=4
+Unicorn's worker\_processes=4
+
+```
+$ sudo nginx -c $PWD/benchmark/unicorn/nginx.conf
+$ benchmark/run-benchmark benchmark/unicorn/run
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   220.02us  260.33us  11.86ms   98.23%
+    Req/Sec     9.67k     1.22k   12.66k    70.90%
+  386771 requests in 10.10s, 59.37MB read
+Requests/sec:  38294.10
+Transfer/sec:      5.88MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.63ms    3.35ms 103.23ms   98.31%
+    Req/Sec    18.58k     6.26k   42.99k    72.50%
+  740129 requests in 10.04s, 113.61MB read
+Requests/sec:  73711.39
+Transfer/sec:     11.31MB
+```
+
+## Node.js http module (4 cluster)
+
+```
+$ benchmark/run-benchmark benchmark/node/run 4
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   200.97us  487.76us  27.56ms   99.33%
+    Req/Sec    11.07k     1.42k   21.98k    85.54%
+  441803 requests in 10.10s, 54.77MB read
+Requests/sec:  43744.19
+Transfer/sec:      5.42MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     2.05ms  417.67us  21.24ms   86.82%
+    Req/Sec    12.25k   729.79    20.32k    75.50%
+  487426 requests in 10.04s, 60.43MB read
+Requests/sec:  48546.08
+Transfer/sec:      6.02MB
+```
+
+## Woo (Common Lisp, worker-num=4)
+
+```
+$ benchmark/run-benchmark benchmark/woo/run 4
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   323.90us    2.25ms  54.48ms   98.25%
+    Req/Sec    16.33k     1.71k   20.82k    80.20%
+  656401 requests in 10.10s, 81.38MB read
+Requests/sec:  64989.82
+Transfer/sec:      8.06MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.12ms    1.38ms  21.69ms   95.08%
+    Req/Sec    27.85k     2.26k   36.49k    70.75%
+  1108090 requests in 10.03s, 137.38MB read
+Requests/sec: 110528.03
+Transfer/sec:     13.70MB
+```
+
+## Go (GOMAXPROCS=4)
+
+```
+$ benchmark/run-benchmark benchmark/go/run 4
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   112.86us  511.71us  19.42ms   99.11%
+    Req/Sec    24.50k     2.75k   31.57k    68.56%
+  984705 requests in 10.08s, 121.14MB read
+Requests/sec:  97647.04
+Transfer/sec:     12.01MB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.26ms    2.15ms  62.68ms   95.64%
+    Req/Sec    26.73k     3.98k   36.94k    65.75%
+  1064894 requests in 10.04s, 131.01MB read
+Requests/sec: 106036.86
+Transfer/sec:     13.05MB
+```
+
+## Racket
+
+```
+$ benchmark/run-benchmark benchmark/racket/run
+```
+
+``` 
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     6.51ms   13.02ms 147.67ms   91.74%
+    Req/Sec   561.37    131.01   808.00     64.65%
+  22335 requests in 10.06s, 3.22MB read
+Requests/sec:   2219.30
+Transfer/sec:    327.26KB
+```
+
+```
+Running 10s test @ http://127.0.0.1:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    66.70ms   52.98ms 503.75ms   89.11%
+    Req/Sec   434.91    179.08   700.00     62.37%
+  17013 requests in 10.06s, 2.45MB read
+Requests/sec:   1691.04
+Transfer/sec:    249.36KB
+```
+</file>
+
+<file path="clack-handler-woo.asd">
+(in-package :cl-user)
+(defpackage clack-handler-woo-asd
+  (:use :cl :asdf))
+(in-package :clack-handler-woo-asd)
+
+(defsystem clack-handler-woo
+  :depends-on (:woo))
+</file>
+
+<file path="LICENSE.txt">
+Copyright 2014 Eitaro Fukamachi & contributers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</file>
+
+<file path="README.md">
+# Woo
+
+[![CI](https://github.com/fukamachi/woo/actions/workflows/ci.yml/badge.svg)](https://github.com/fukamachi/woo/actions/workflows/ci.yml)
+
+Woo is a fast non-blocking HTTP server built on top of [libev](http://software.schmorp.de/pkg/libev.html). Although Woo is written in Common Lisp, it aims to be the fastest web server written in any programming language.
+
+## Warning
+
+This software is still BETA quality.
+
+## How fast?
+
+![Benchmark graph](images/benchmark.png)
+
+See [benchmark.md](benchmark.md) for the detail.
+
+## Usage
+
+Use `clack:clackup` or `woo:run` to start a web server. The first argument is a Lack "app". See [Lack's README](https://github.com/fukamachi/lack#readme) for instruction on how to build it.
+
+Remember to pass ":debug nil" to turn off the debugger mode on production environments (it's on by default). Otherwise, your server will go down on internal errors.
+
+### Start a server
+
+```common-lisp
+(ql:quickload :woo)
+
+(woo:run
+  (lambda (env)
+    (declare (ignore env))
+    '(200 (:content-type "text/plain") ("Hello, World"))))
+```
+
+### Start with Clack
+
+```common-lisp
+(ql:quickload :clack)
+
+(clack:clackup
+  (lambda (env)
+    (declare (ignore env))
+    '(200 (:content-type "text/plain") ("Hello, World")))
+  :server :woo
+  :use-default-middlewares nil)
+```
+
+### Cluster
+
+```common-lisp
+(woo:run
+  (lambda (env)
+    (declare (ignore env))
+    '(200 (:content-type "text/plain") ("Hello, World")))
+  :worker-num 4)
+```
+
+### SSL Support
+
+Use SSL key arguments of `woo:run` or `clack:clackup`.
+
+```commonlisp
+(woo:run app
+         :ssl-cert-file #P"path/to/cert.pem"
+         :ssl-key-file #P"path/to/key.pem"
+         :ssl-key-password "password")
+
+(clack:clackup app
+               :ssl-cert-file #P"path/to/cert.pem"
+               :ssl-key-file #P"path/to/key.pem"
+               :ssl-key-password "password")
+```
+
+To disable the HTTPS support to omit a dependency on CL+SSL, add `woo-no-ssl` to `cl:*features*`.
+
+## Signal handling
+
+When the master process gets these signals, it kills worker processes and quits afterwards.
+
+- QUIT: graceful shutdown, waits for all requests are finished.
+- INT/TERM: shutdown immediately.
+
+## Benchmarks
+
+See [benchmark.md](benchmark.md).
+
+## Installation
+
+### Requirements
+
+* UNIX (GNU Linux, Mac, \*BSD)
+* SBCL
+* [libev](http://libev.schmorp.de)
+* OpenSSL or LibreSSL (Optional)
+  * To turn off SSL, add `:woo-no-ssl` to `cl:*features*` before loading Woo.
+
+### Installing via Quicklisp
+
+```common-lisp
+(ql:quickload :woo)
+```
+
+## Docker example
+
+* [Dockerfile](https://github.com/quickdocs/quickdocs-api/blob/master/docker/Dockerfile.production) for Quickdocs's API server.
+
+## See Also
+
+* [Lack](https://github.com/fukamachi/lack): Building a web application
+* [Clack](https://github.com/fukamachi/clack): An abstraction layer for web servers
+* [libev](http://software.schmorp.de/pkg/libev.html)
+
+## Author
+
+* Eitaro Fukamachi (e.arrows@gmail.com)
+
+## Copyright
+
+Copyright (c) 2014 Eitaro Fukamachi & [contributors](https://github.com/fukamachi/woo/graphs/contributors)
+
+## License
+
+Licensed under the MIT License.
+</file>
+
+<file path="woo-test.asd">
+(defsystem "woo-test"
+  :depends-on ("woo"
+               "clack-test"
+               "rove")
+  :components
+  ((:file "t/woo")
+   (:file "t/ipv6"))
+  :perform (test-op (op c) (symbol-call '#:rove '#:run c)))
+</file>
+
+<file path="woo.asd">
+(defsystem "woo"
+  :version "0.12.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :defsystem-depends-on ("cffi-grovel")
+  :depends-on ("lev"
+               "clack-socket"
+               "swap-bytes"
+               "cffi"
+               "static-vectors"
+               "bordeaux-threads"
+               "fast-http"
+               "quri"
+               "fast-io"
+               "smart-buffer"
+               "trivial-utf-8"
+               "trivial-mimes"
+               "vom"
+               "alexandria"
+               (:feature :sbcl "sb-posix")
+               (:feature (:and :linux (:not :asdf3)) "uiop")
+               (:feature :sbcl "sb-concurrency")
+               (:feature (:not :sbcl) "cl-speedy-queue")
+               (:feature (:not :woo-no-ssl) "cl+ssl"))
+  :components ((:module "src"
+                :components
+                ((:file "woo" :depends-on ("ev" "response" "worker" "ssl" "signal" "specials" "util"))
+                 (:file "response" :depends-on ("ev"))
+                 (:file "ev" :depends-on ("ev-packages"))
+                 (:file "worker" :depends-on ("ev" "queue" "specials"))
+                 (:file "queue")
+                 (:module "ev-packages"
+                  :pathname "ev"
+                  :depends-on ("syscall" "llsocket")
+                  :components
+                  ((:file "event-loop")
+                   (:file "socket" :depends-on ("event-loop" "condition" "util"))
+                   (:file "tcp" :depends-on ("event-loop" "socket" "util" "condition"))
+                   (:file "condition")
+                   (:file "util")))
+                 (:file "ssl"
+                  :depends-on ("ev-packages")
+                  :if-feature (:not :woo-no-ssl))
+                 (:module "llsocket"
+                  :depends-on ("syscall")
+                  :serial t
+                  :components
+                  ((:file "package")
+                   (:cffi-grovel-file "grovel")
+                   (:file "cffi")))
+                 (:module "syscall"
+                  :serial t
+                  :components
+                  ((:file "package")
+                   (:cffi-grovel-file "types")
+                   (:file "main")))
+                 (:file "signal" :depends-on ("ev" "worker" "specials"))
+                 (:file "specials")
+                 (:file "util"))))
+  :description "An asynchronous HTTP server written in Common Lisp"
+  :in-order-to ((test-op (test-op "woo-test"))))
+</file>
+
+</files>

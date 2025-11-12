@@ -46,12 +46,17 @@
 
         (zapier-triggers.utils:json-success-response
          (list :|events| (mapcar (lambda (event)
-                                   (list :|id| (getf event :id)
-                                         :|type| (getf event :type)
-                                         :|payload| (getf event :payload)
-                                         :|status| (getf event :status)
-                                         :|created_at| (local-time:format-timestring
-                                                       nil (getf event :created-at))))
+                                   (let ((created-at (getf event :created-at)))
+                                     (list :|id| (getf event :id)
+                                           :|type| (getf event :type)
+                                           :|payload| (getf event :payload)
+                                           :|status| (getf event :status)
+                                           :|created_at| (if (integerp created-at)
+                                                             (local-time:format-timestring
+                                                              nil
+                                                              (local-time:unix-to-timestamp created-at))
+                                                             (local-time:format-timestring
+                                                              nil created-at)))))
                                  events)
                :|count| (length events)
                :|total| total

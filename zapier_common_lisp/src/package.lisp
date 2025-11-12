@@ -66,8 +66,7 @@
 
 (defpackage #:zapier-triggers.routes
   (:use #:cl)
-  (:export #:setup-routes
-           #:health-check-handler
+  (:export #:health-check-handler
            #:generate-key-handler
            #:get-key-info-handler
            #:create-event-handler
@@ -88,4 +87,9 @@
            #:json-error-response
            #:generate-api-key
            #:generate-uuid
-           #:generate-event-id))
+           #:generate-event-id
+           ;; Dedup cache functions
+           #:dedup-cache-check
+           #:dedup-cache-add
+           #:dedup-cache-clear
+           #:dedup-cache-stats))

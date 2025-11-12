@@ -84,11 +84,16 @@
                                 :single)))
                   (when existing
                     (format t "~&[QUEUE] Duplicate event skipped: ~A~%" dedup-id)
-                    (return-from process-queued-event nil))))
+                    ;; Return :duplicate to signal duplicate detected
+                    (return-from process-queued-event :duplicate))))
 
               ;; Insert event into database
               (zapier-triggers.db::insert-event event-id org-id event-type
                                                 payload-json dedup-id)
+
+              ;; Add to dedup cache for future fast lookups
+              (when dedup-id
+                (zapier-triggers.utils:dedup-cache-add org-id dedup-id))
 
               (format t "~&[QUEUE] Event processed: ~A~%" event-id)
               t))))

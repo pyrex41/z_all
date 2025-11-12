@@ -9,7 +9,7 @@
   :depends-on (#:woo
                #:clack
                #:lack
-               #:ningle
+               #:flexi-streams
                #:postmodern
                #:jonathan
                #:local-time
@@ -31,7 +31,8 @@
                   :components
                   ((:file "json")
                    (:file "validation")
-                   (:file "crypto")))
+                   (:file "crypto")
+                   (:file "dedup-cache")))
                  (:module "db"
                   :components
                   ((:file "connection")

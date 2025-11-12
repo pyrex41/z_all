@@ -53,6 +53,35 @@
              :status 400
              :code "missing_payload")))
 
+        ;; Fast dedup check: in-memory cache first, then DB fallback
+        (when dedup-id
+          ;; Check cache first (microseconds)
+          (when (zapier-triggers.utils:dedup-cache-check org-id dedup-id)
+            (return-from create-event-handler
+              (zapier-triggers.utils:json-error-response
+               "Duplicate event"
+               :status 409
+               :code "duplicate_event")))
+
+          ;; Not in cache, check DB (milliseconds)
+          (zapier-triggers.db:with-connection
+            (let ((existing (postmodern:query
+                            "SELECT id FROM events
+                             WHERE organization_id = $1 AND dedup_id = $2"
+                            org-id dedup-id
+                            :single)))
+              (when existing
+                ;; Add to cache for future fast lookups
+                (zapier-triggers.utils:dedup-cache-add org-id dedup-id)
+                (return-from create-event-handler
+                  (zapier-triggers.utils:json-error-response
+                   "Duplicate event"
+                   :status 409
+                   :code "duplicate_event")))))
+
+          ;; Not duplicate, add to cache preemptively
+          (zapier-triggers.utils:dedup-cache-add org-id dedup-id))
+
         ;; Enqueue event for async processing (instant response)
         (let ((event-id (zapier-triggers:enqueue-event
                          org-id event-type payload dedup-id)))
@@ -96,7 +125,7 @@
 
     ;; Update event status
     (if (zapier-triggers.models:update-event-status event-id "delivered")
-        (list 204 '(:content-type "text/plain") '(""))
+        (list 204 '(:content-type "text/plain" :connection "close") '(""))
         (zapier-triggers.utils:json-error-response
          "Failed to acknowledge event"
          :status 500

@@ -26,6 +26,7 @@
       (if org
           (zapier-triggers.utils:json-success-response
            (list :|api_key| (getf org :api-key)
+                 :|organization_id| (getf org :id)
                  :|organization_name| org-name
                  :|tier| tier
                  :|created_at| (local-time:format-timestring
@@ -36,17 +37,34 @@
            :status 500
            :code "generation_failed")))))
 
+(defun get-rate-limit-for-tier (tier)
+  "Get rate limit per minute for tier"
+  (cond
+    ((string= tier "free") 10)
+    ((string= tier "starter") 60)
+    ((string= tier "professional") 600)
+    ((string= tier "enterprise") 6000)
+    (t 10)))
+
 (defun get-key-info-handler (params)
   "Get API key info endpoint handler"
   (let* ((env (getf params :env))
          (org (getf env :organization)))
     (if org
-        (zapier-triggers.utils:json-success-response
-         (list :|api_key| (getf org :api-key)
-               :|organization_name| (getf org :name)
-               :|tier| (getf org :tier)
-               :|created_at| (local-time:format-timestring
-                             nil (getf org :created-at))))
+        (let ((created-at (getf org :created-at))
+              (tier (getf org :tier)))
+          (zapier-triggers.utils:json-success-response
+           (list :|api_key| (getf org :api-key)
+                 :|organization_id| (getf org :id)
+                 :|organization_name| (getf org :name)
+                 :|tier| tier
+                 :|rate_limit_per_minute| (get-rate-limit-for-tier tier)
+                 :|created_at| (if (integerp created-at)
+                                   (local-time:format-timestring
+                                    nil
+                                    (local-time:unix-to-timestamp created-at))
+                                   (local-time:format-timestring
+                                    nil created-at)))))
         (zapier-triggers.utils:json-error-response
          "Organization not found"
          :status 404
