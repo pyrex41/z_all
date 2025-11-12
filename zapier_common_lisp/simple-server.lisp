@@ -113,10 +113,18 @@
     (format t "~&[POOL] Connection pool closed~%")))
 
 ;; Rate Limiting
-(defun check-rate-limit (org-id)
+(defun get-tier-rate-limit (tier)
+  "Get rate limit for a given tier"
+  (case (intern (string-upcase tier) :keyword)
+    (:free 100)
+    (:pro 1000)
+    (:enterprise 10000)
+    (t 100)))
+
+(defun check-rate-limit (org-id tier)
   "Check if organization has exceeded rate limit. Returns T if allowed, NIL if blocked"
   (let ((now (get-universal-time))
-        (limit-rpm (get-config "rate-limit-rpm"))
+        (limit-rpm (get-tier-rate-limit tier))
         (window 60)) ; 60 second window
     (bt:with-lock-held (*rate-limit-lock*)
       (let ((entry (gethash org-id *rate-limiter*)))
@@ -135,8 +143,8 @@
                   (if (>= count limit-rpm)
                       ;; Rate limited
                       (progn
-                        (format t "~&[RATE] Organization ~a exceeded rate limit (~a/min)~%"
-                                org-id limit-rpm)
+                        (format t "~&[RATE] Organization ~a exceeded rate limit (~a/min, tier: ~a)~%"
+                                org-id limit-rpm tier)
                         nil)
                       ;; Increment count
                       (progn
@@ -301,6 +309,33 @@
      org-id
      :rows)))
 
+(defun db-upsert-webhook (org-id webhook-url)
+  "Create or update webhook for organization. Returns webhook-id."
+  (let ((conn (pomo:connect (get-config "db-name")
+                            (get-config "db-user")
+                            (get-config "db-pass")
+                            (get-config "db-host")
+                            :port (get-config "db-port")
+                            :pooled-p nil)))
+    (unwind-protect
+        (let ((pomo:*database* conn))
+          ;; First try to update existing webhook
+          (let ((updated (pomo:query
+                         "UPDATE webhooks SET url = $2, updated_at = NOW()
+                          WHERE organization_id = $1
+                          RETURNING id"
+                         org-id webhook-url
+                         :single)))
+            (or updated
+                ;; If no rows updated, insert new webhook
+                (pomo:query
+                 "INSERT INTO webhooks (organization_id, url, created_at)
+                  VALUES ($1, $2, NOW())
+                  RETURNING id"
+                 org-id webhook-url
+                 :single))))
+      (pomo:disconnect conn))))
+
 (defun db-update-event-status (event-id new-status)
   "Update event status"
   (with-pooled-connection (conn)
@@ -376,12 +411,55 @@
                   (list :org-id org-id :org-name org-name :tier tier :created (local-time:now))))
 
           (format t "~&[AUTH] Created API key for org: ~a (id: ~a)~%" org-name org-id)
-          (json-response (list :api-key api-key
-                              :organization-name org-name
-                              :tier tier))))
+          ;; Return snake_case fields for compatibility with other implementations
+          (let ((response (make-hash-table :test 'equal)))
+            (setf (gethash "api_key" response) api-key)
+            (setf (gethash "organization_name" response) org-name)
+            (setf (gethash "organization_id" response) org-id)
+            (setf (gethash "tier" response) tier)
+            (setf (content-type*) "application/json")
+            (setf (return-code*) 200)
+            (with-output-to-string (s)
+              (yason:encode response s)))))
     (error (e)
       (format t "~&[ERROR] Failed to generate API key: ~a~%" e)
       (json-response (list :error "Failed to generate API key"
+                          :message (format nil "~a" e))
+                     500))))
+
+(define-easy-handler (get-api-key-info :uri "/api/keys") ()
+  "Get API key information"
+  (handler-case
+      (let ((api-key (header-in* :x-api-key)))
+        (unless api-key
+          (return-from get-api-key-info
+            (json-response (list :error "Missing API key") 401)))
+
+        ;; Validate API key against database
+        (let ((org-info (db-validate-api-key api-key)))
+          (unless org-info
+            (return-from get-api-key-info
+              (json-response (list :error "Invalid API key") 401)))
+
+          (destructuring-bind (org-id org-name tier) org-info
+            ;; Return API key info with snake_case fields
+            (let ((response (make-hash-table :test 'equal))
+                  (rate-limit (case (intern (string-upcase tier) :keyword)
+                               (:free 100)
+                               (:pro 1000)
+                               (:enterprise 10000)
+                               (t 100))))
+              (setf (gethash "organization_id" response) org-id)
+              (setf (gethash "organization_name" response) org-name)
+              (setf (gethash "tier" response) tier)
+              (setf (gethash "rate_limit_per_minute" response) rate-limit)
+              (setf (content-type*) "application/json")
+              (setf (return-code*) 200)
+              (with-output-to-string (s)
+                (yason:encode response s))))))
+    (error (e)
+      (format t "~&[ERROR] Failed to get API key info: ~a~%" e)
+      (json-response (list :error "Failed to get API key info"
                           :message (format nil "~a" e))
                      500))))
 
@@ -402,34 +480,53 @@
 
           (destructuring-bind (org-id org-name tier) org-info
             ;; Check rate limit
-            (unless (check-rate-limit org-id)
+            (unless (check-rate-limit org-id tier)
               (return-from post-event
                 (json-response (list :error "Rate limit exceeded"
                                     :message (format nil "Maximum ~a requests per minute"
-                                                   (get-config "rate-limit-rpm")))
+                                                   (get-tier-rate-limit tier)))
                                429)))
 
-            (let* ((event-type (gethash "type" body))
-                   (payload (gethash "payload" body))
-                   (dedup-id (gethash "dedup_id" body))
-                   (event-id (format nil "~a" (uuid:make-v4-uuid))))
+            ;; Validate required fields
+            (let ((event-type (gethash "type" body))
+                  (payload (gethash "payload" body))
+                  (dedup-id (gethash "dedup_id" body)))
 
-              ;; Check cache for duplicate
-              (let ((existing-event-id (check-duplicate org-id dedup-id)))
+              (unless (and event-type payload dedup-id)
+                (return-from post-event
+                  (json-response (list :error "Invalid event format"
+                                      :message "Missing required fields: type, payload, or dedup_id")
+                                 400)))
+
+              ;; Validate payload size (256KB limit) and prepare JSON
+              (let* ((payload-json (with-output-to-string (s)
+                                    (yason:encode payload s)))
+                     (payload-size (length payload-json)))
+                (when (> payload-size (* 256 1024))
+                  (return-from post-event
+                    (json-response (list :error "Payload too large"
+                                        :message (format nil "Payload size ~a bytes exceeds 256KB limit" payload-size))
+                                   413)))
+
+                (let ((event-id (format nil "~a" (uuid:make-v4-uuid))))
+                  ;; Check cache for duplicate
+                  (let ((existing-event-id (check-duplicate org-id dedup-id)))
                 (if existing-event-id
-                    ;; Duplicate found in cache
+                    ;; Duplicate found in cache - return 409 Conflict
                     (progn
                       (format t "~&[DEDUP] Duplicate event (cache): ~a (org: ~a)~%"
                               dedup-id org-name)
-                      (json-response (list :status "duplicate"
-                                          :message "Event already processed"
-                                          :event-id existing-event-id)
-                                     200))
+                      (let ((response (make-hash-table :test 'equal)))
+                        (setf (gethash "status" response) "duplicate")
+                        (setf (gethash "message" response) "Event already processed")
+                        (setf (gethash "event_id" response) existing-event-id)
+                        (setf (content-type*) "application/json")
+                        (setf (return-code*) 409)
+                        (with-output-to-string (s)
+                          (yason:encode response s))))
 
-                    ;; Not in cache - try database insert
-                    (let* ((payload-json (with-output-to-string (s)
-                                          (yason:encode payload s)))
-                           (db-event-id (db-insert-event event-id org-id event-type
+                    ;; Not in cache - try database insert (payload-json already computed)
+                    (let ((db-event-id (db-insert-event event-id org-id event-type
                                                         payload-json dedup-id)))
                       (if db-event-id
                           ;; Successfully inserted
@@ -453,17 +550,27 @@
                             ;; DISABLED: webhook processing causes connection pool leaks
                             ;; (process-webhooks org-id event-id event-type payload)
 
-                            (json-response (list :status "accepted"
-                                                :event-id event-id)))
+                            ;; Success - return 200 with event_id (snake_case)
+                            (let ((response (make-hash-table :test 'equal)))
+                              (setf (gethash "status" response) "accepted")
+                              (setf (gethash "event_id" response) event-id)
+                              (setf (content-type*) "application/json")
+                              (setf (return-code*) 200)
+                              (with-output-to-string (s)
+                                (yason:encode response s)))))
 
-                          ;; Database rejected (duplicate constraint)
+                          ;; Database rejected (duplicate constraint) - return 409 Conflict
                           (progn
                             (format t "~&[DEDUP] Duplicate event (database): ~a (org: ~a)~%"
                                     dedup-id org-name)
-                            (json-response (list :status "duplicate"
-                                                :message "Event already processed"
-                                                :event-id event-id)
-                                           200))))))))))
+                            (let ((response (make-hash-table :test 'equal)))
+                              (setf (gethash "status" response) "duplicate")
+                              (setf (gethash "message" response) "Event already processed")
+                              (setf (gethash "event_id" response) event-id)
+                              (setf (content-type*) "application/json")
+                              (setf (return-code*) 409)
+                              (with-output-to-string (s)
+                                (yason:encode response s)))))))))))))
     (error (e)
       (format t "~&[ERROR] Failed to create event: ~a~%" e)
       (json-response (list :error "Failed to create event"
@@ -515,6 +622,46 @@
     (error (e)
       (format t "~&[ERROR] Failed to retrieve inbox: ~a~%" e)
       (json-response (list :error "Failed to retrieve inbox"
+                          :message (format nil "~a" e))
+                     500))))
+
+(define-easy-handler (configure-webhook :uri "/api/webhook/config") ()
+  "Configure webhook URL for organization"
+  (handler-case
+      (let* ((api-key (header-in* :x-api-key))
+             (body (get-json-body)))
+        (unless api-key
+          (return-from configure-webhook
+            (json-response (list :error "Missing API key") 401)))
+
+        ;; Validate API key against database
+        (let ((org-info (db-validate-api-key api-key)))
+          (unless org-info
+            (return-from configure-webhook
+              (json-response (list :error "Invalid API key") 401)))
+
+          (destructuring-bind (org-id org-name tier) org-info
+            (let ((webhook-url (gethash "webhook_url" body)))
+              (unless webhook-url
+                (return-from configure-webhook
+                  (json-response (list :error "Missing webhook_url") 400)))
+
+              ;; Store webhook in database
+              (let ((webhook-id (db-upsert-webhook org-id webhook-url)))
+                (format t "~&[WEBHOOK] Configured webhook for org: ~a (url: ~a)~%"
+                        org-name webhook-url)
+                ;; Return response with snake_case fields
+                (let ((response (make-hash-table :test 'equal)))
+                  (setf (gethash "webhook_url" response) webhook-url)
+                  (setf (gethash "organization_id" response) org-id)
+                  (setf (gethash "status" response) "configured")
+                  (setf (content-type*) "application/json")
+                  (setf (return-code*) 200)
+                  (with-output-to-string (s)
+                    (yason:encode response s))))))))
+    (error (e)
+      (format t "~&[ERROR] Failed to configure webhook: ~a~%" e)
+      (json-response (list :error "Failed to configure webhook"
                           :message (format nil "~a" e))
                      500))))
 
