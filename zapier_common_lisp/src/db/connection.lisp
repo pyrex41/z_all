@@ -65,17 +65,70 @@
        (connect-db))
      ,@body))
 
+(defun split-sql-statements (sql)
+  "Split SQL string into individual statements, handling semicolons in function/procedure bodies"
+  (let ((statements '())
+        (current "")
+        (in-function nil))
+    (loop for line in (cl-ppcre:split "\\n" sql)
+          do (let ((trimmed (string-trim '(#\Space #\Tab) line)))
+               ;; Track if we're inside a function or procedure definition
+               (when (cl-ppcre:scan "(?i)CREATE\\s+(OR\\s+REPLACE\\s+)?(FUNCTION|PROCEDURE)" trimmed)
+                 (setf in-function t))
+               ;; Handle any $tag$ style delimiter ($$, $function_name$, etc.)
+               (when (and in-function (cl-ppcre:scan "(?i)\\$\\$|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$" trimmed))
+                 (setf in-function (not in-function))) ; toggle state
+
+               ;; Append line to current statement
+               (setf current (concatenate 'string current line (string #\Newline)))
+
+               ;; If we hit a semicolon outside of a function, split
+               (when (and (not in-function)
+                         (cl-ppcre:scan ";\\s*$" trimmed)
+                         (not (string= trimmed ""))
+                         (not (cl-ppcre:scan "^--" trimmed)))
+                 (push current statements)
+                 (setf current ""))))
+    (nreverse statements)))
+
 (defun init-schema ()
   "Initialize database schema from SQL file"
   (with-connection
     (let ((schema-path (asdf:system-relative-pathname
                         :zapier-triggers "sql/schema.sql")))
       (when (probe-file schema-path)
-        (let ((schema-sql (uiop:read-file-string schema-path)))
+        (let* ((schema-sql (uiop:read-file-string schema-path))
+               (statements (split-sql-statements schema-sql))
+               (success-count 0)
+               (skip-count 0))
           (handler-case
               (progn
-                (postmodern:execute schema-sql)
-                (format t "~&[DB] Schema initialized successfully~%")
+                (dolist (stmt statements)
+                  (let ((trimmed (string-trim '(#\Space #\Tab #\Newline) stmt)))
+                    (unless (or (string= trimmed "")
+                               (cl-ppcre:scan "^--" trimmed))
+                      (handler-case
+                          (progn
+                            (postmodern:execute trimmed)
+                            (incf success-count))
+                        (cl-postgres-error:database-error (e)
+                          ;; Check if it's an expected "already exists" error
+                          (let ((error-msg (princ-to-string e)))
+                            (if (or (search "already exists" error-msg)
+                                   (search "duplicate" error-msg))
+                                (progn
+                                  (incf skip-count)
+                                  (format t "~&[DB INFO] Skipping existing object~%"))
+                                (progn
+                                  (format t "~&[DB ERROR] Schema statement failed: ~A~%" e)
+                                  (format t "~&[DB ERROR] Statement: ~A~%" (subseq trimmed 0 (min 100 (length trimmed))))
+                                  (error e))))) ; re-raise unexpected errors
+                        (error (e)
+                          (format t "~&[DB ERROR] Unexpected error: ~A~%" e)
+                          (format t "~&[DB ERROR] Statement: ~A~%" (subseq trimmed 0 (min 100 (length trimmed))))
+                          (error e))))))
+                (format t "~&[DB] Schema initialized successfully (~D statements executed, ~D skipped)~%"
+                        success-count skip-count)
                 t)
             (error (e)
               (format t "~&[DB ERROR] Failed to initialize schema: ~A~%" e)

@@ -98,8 +98,9 @@
       ;; Routes (innermost)
       (setup-routes))))))
 
-(defun start-server (&key (port 5000) (worker-num 4) (debug nil))
-  "Start Woo HTTP server"
+(defun start-server (&key (port 5000) (worker-num 4) (debug nil) (server :woo))
+  "Start HTTP server using Clack interface
+   :server can be :woo (default), :hunchentoot, :fcgi, or any Clack-supported server"
   (unless *server*
     ;; Initialize database connection
     (format t "~&[SERVER] Initializing database...~%")
@@ -114,15 +115,20 @@
     (format t "~&[SERVER] Building application...~%")
     (setf *app* (build-app))
 
-    ;; Start Woo server
-    (format t "~&[SERVER] Starting Woo server on port ~D with ~D workers~%"
-            port worker-num)
+    ;; Start server using Clack
+    (format t "~&[SERVER] Starting ~A server on port ~D~A~%"
+            (string-upcase (symbol-name server))
+            port
+            (if (eq server :woo)
+                (format nil " with ~D workers" worker-num)
+                ""))
     (setf *server*
-          (woo:run *app*
-                   :port port
-                   :worker-num worker-num
-                   :debug debug
-                   :use-default-middlewares nil))
+          (clack:clackup *app*
+                        :server server
+                        :port port
+                        :worker-num (if (eq server :woo) worker-num nil)
+                        :debug debug
+                        :use-default-middlewares nil))
 
     (format t "~&[SERVER] Server started successfully~%")
     (format t "~&[SERVER] Visit http://localhost:~D/health~%" port)
@@ -130,15 +136,15 @@
     *server*))
 
 (defun stop-server ()
-  "Stop Woo HTTP server"
+  "Stop HTTP server (Clack-managed)"
   (when *server*
     (format t "~&[SERVER] Stopping server...~%")
 
     ;; Stop background workers first
     (zapier-triggers:stop-workers)
 
-    ;; Stop Woo server
-    (woo:stop *server*)
+    ;; Stop server using Clack
+    (clack:stop *server*)
     (setf *server* nil)
 
     ;; Disconnect database
@@ -147,11 +153,11 @@
     (format t "~&[SERVER] Server stopped~%"))
   t)
 
-(defun restart-server (&key (port 5000) (worker-num 4) (debug nil))
+(defun restart-server (&key (port 5000) (worker-num 4) (debug nil) (server :woo))
   "Restart server"
   (stop-server)
   (sleep 1)
-  (start-server :port port :worker-num worker-num :debug debug))
+  (start-server :port port :worker-num worker-num :debug debug :server server))
 
 (defun main ()
   "Main entry point"
