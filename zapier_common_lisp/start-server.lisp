@@ -9,12 +9,16 @@
 
 ;; Parse command line arguments for server type
 (defparameter *server-type*
-  (let ((arg (second sb-ext:*posix-argv*)))
-    (cond
-      ((string= arg "woo") :woo)
-      ((string= arg "hunchentoot") :hunchentoot)
-      ((string= arg "fcgi") :fcgi)
-      (t :woo)))) ; default to Woo
+  (let* ((arg (second sb-ext:*posix-argv*))
+         (server (when arg
+                   (cond
+                     ((string-equal arg "woo") :woo)
+                     ((string-equal arg "hunchentoot") :hunchentoot)
+                     ((string-equal arg "fcgi") :fcgi)
+                     (t (progn
+                          (format t "~&[WARNING] Unknown server type: ~A, using default (woo)~%" arg)
+                          :woo))))))
+    (or server :woo))) ; default to Woo
 
 ;; Start the server
 (format t "~%Starting Zapier Triggers API on port 5001...~%")
