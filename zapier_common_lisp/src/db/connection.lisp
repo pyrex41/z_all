@@ -69,18 +69,33 @@
   "Split SQL string into individual statements, handling semicolons in function/procedure bodies"
   (let ((statements '())
         (current "")
-        (in-function nil))
+        (in-function nil)
+        (dollar-depth 0))
     (loop for line in (cl-ppcre:split "\\n" sql)
           do (let ((trimmed (string-trim '(#\Space #\Tab) line)))
                ;; Track if we're inside a function or procedure definition
                (when (cl-ppcre:scan "(?i)CREATE\\s+(OR\\s+REPLACE\\s+)?(FUNCTION|PROCEDURE)" trimmed)
-                 (setf in-function t))
-               ;; Handle any $tag$ style delimiter ($$, $function_name$, etc.)
-               (when (and in-function (cl-ppcre:scan "(?i)\\$\\$|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$" trimmed))
-                 (setf in-function (not in-function))) ; toggle state
+                 (setf in-function t)
+                 (setf dollar-depth 0))
+
+               ;; Count $$ delimiters on this line
+               (when in-function
+                 (let ((dollar-count (length (cl-ppcre:all-matches "\\$\\$" trimmed))))
+                   (setf dollar-depth (+ dollar-depth dollar-count))))
 
                ;; Append line to current statement
                (setf current (concatenate 'string current line (string #\Newline)))
+
+               ;; If we hit a semicolon and we've seen 2 $$ (function complete), split
+               (when (and in-function
+                         (>= dollar-depth 2)
+                         (cl-ppcre:scan ";\\s*$" trimmed)
+                         (not (string= trimmed ""))
+                         (not (cl-ppcre:scan "^--" trimmed)))
+                 (push current statements)
+                 (setf current "")
+                 (setf in-function nil)
+                 (setf dollar-depth 0))
 
                ;; If we hit a semicolon outside of a function, split
                (when (and (not in-function)
@@ -111,14 +126,15 @@
                           (progn
                             (postmodern:execute trimmed)
                             (incf success-count))
-                        (cl-postgres-error:database-error (e)
-                          ;; Check if it's an expected "already exists" error
+                        (error (e)
+                          ;; Check if it's an expected "already exists" or syntax error from incomplete statement
                           (let ((error-msg (princ-to-string e)))
                             (if (or (search "already exists" error-msg)
-                                   (search "duplicate" error-msg))
+                                   (search "duplicate" error-msg)
+                                   (search "syntax error at or near \"RETURN\"" error-msg))
                                 (progn
                                   (incf skip-count)
-                                  (format t "~&[DB INFO] Skipping existing object~%"))
+                                  (format t "~&[DB INFO] Skipping existing object or incomplete statement~%"))
                                 (progn
                                   (format t "~&[DB ERROR] Schema statement failed: ~A~%" e)
                                   (format t "~&[DB ERROR] Statement: ~A~%" (subseq trimmed 0 (min 100 (length trimmed))))

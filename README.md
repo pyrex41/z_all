@@ -148,7 +148,7 @@ cargo build && cargo run
 
 # Common Lisp
 cd zapier_common_lisp
-sbcl --load start-simple-server.lisp
+sbcl --load start-server.lisp
 # Visit: http://localhost:5001
 ```
 
@@ -223,7 +223,7 @@ cd zapier_elixir/zapier_triggers && mix phx.server
 cd zapier_rust && cargo run --release
 
 # Terminal 4: Common Lisp
-cd zapier_common_lisp && sbcl --load start-simple-server.lisp
+cd zapier_common_lisp && sbcl --load start-server.lisp
 ```
 
 **Run tests across all implementations:**

@@ -57,6 +57,17 @@ if [ -d "$ROOT_DIR/zapier_rust" ] && [ -f "$ROOT_DIR/zapier_rust/Cargo.toml" ]; 
     echo "   PID: ${PIDS[-1]}"
 fi
 
+# Start Common Lisp
+echo "🔮 Starting Common Lisp implementation (port 5001)..."
+if [ -d "$ROOT_DIR/zapier_common_lisp" ]; then
+    cd "$ROOT_DIR/zapier_common_lisp"
+    sbcl --load start-server.lisp > /tmp/zapier_commonlisp.log 2>&1 &
+    PIDS+=($!)
+    echo "   PID: ${PIDS[-1]}"
+else
+    echo "   ⚠️  Not found"
+fi
+
 echo ""
 echo "⏳ Waiting for services to start (5 seconds)..."
 sleep 5
@@ -65,17 +76,23 @@ echo ""
 echo "✅ Services started!"
 echo ""
 echo "Available APIs:"
-echo "  - Python:  http://localhost:8000       (docs: /docs)"
-echo "  - Elixir:  http://localhost:4000       (docs: /api/docs)"
+echo "  - Python:       http://localhost:8000  (docs: /docs)"
+echo "  - Elixir:       http://localhost:4000  (docs: /api/docs)"
 if [ -f "$ROOT_DIR/zapier_rust/Cargo.toml" ]; then
-    echo "  - Rust:    http://localhost:8080"
+    echo "  - Rust:         http://localhost:8080"
+fi
+if [ -d "$ROOT_DIR/zapier_common_lisp" ]; then
+    echo "  - Common Lisp:  http://localhost:5001"
 fi
 echo ""
 echo "Logs:"
-echo "  - Python:  tail -f /tmp/zapier_python.log"
-echo "  - Elixir:  tail -f /tmp/zapier_elixir.log"
+echo "  - Python:       tail -f /tmp/zapier_python.log"
+echo "  - Elixir:       tail -f /tmp/zapier_elixir.log"
 if [ -f "$ROOT_DIR/zapier_rust/Cargo.toml" ]; then
-    echo "  - Rust:    tail -f /tmp/zapier_rust.log"
+    echo "  - Rust:         tail -f /tmp/zapier_rust.log"
+fi
+if [ -d "$ROOT_DIR/zapier_common_lisp" ]; then
+    echo "  - Common Lisp:  tail -f /tmp/zapier_commonlisp.log"
 fi
 echo ""
 echo "Press Ctrl+C to stop all services"

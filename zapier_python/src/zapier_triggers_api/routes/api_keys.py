@@ -110,11 +110,10 @@ async def generate_key(
     organization = Organization(
         name=request.organization_name,
         api_key_hash=api_key_hash,
-        api_key_prefix=api_key[:12],  # Store first 12 chars for fast lookup
-        webhook_url="",  # Must be configured later
-        rate_limit=rate_limit_for_tier(request.tier),
-        plan=request.tier,
-        created_at=datetime.utcnow(),
+        webhook_url=None,  # Must be configured later
+        rate_limit_per_minute=rate_limit_for_tier(request.tier),
+        tier=request.tier.value,
+        inserted_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
 
@@ -126,9 +125,9 @@ async def generate_key(
         organization_id=organization.id,
         organization_name=organization.name,
         api_key=api_key,
-        tier=organization.plan,
-        rate_limit_per_minute=organization.rate_limit,
-        created_at=organization.created_at,
+        tier=organization.tier,
+        rate_limit_per_minute=organization.rate_limit_per_minute,
+        created_at=organization.inserted_at,
     )
 
 
@@ -147,7 +146,6 @@ async def rotate_key(
 
     # Update organization with new key
     org.api_key_hash = new_api_key_hash
-    org.api_key_prefix = prefix.rstrip("_")
     org.updated_at = datetime.utcnow()
 
     session.add(org)
@@ -175,9 +173,9 @@ async def get_key_info(
     return KeyInfoResponse(
         organization_id=org.id,
         organization_name=org.name,
-        tier=org.plan,
-        rate_limit_per_minute=org.rate_limit,
-        webhook_url=org.webhook_url,
-        created_at=org.created_at,
+        tier=org.tier,
+        rate_limit_per_minute=org.rate_limit_per_minute,
+        webhook_url=org.webhook_url or "",
+        created_at=org.inserted_at,
         updated_at=org.updated_at,
     )

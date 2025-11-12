@@ -29,7 +29,7 @@
 
 (defun load-config ()
   "Load configuration from environment or defaults"
-  (setf (gethash "db-name" *config*) (or (uiop:getenv "DB_NAME") "zapier_triggers"))
+  (setf (gethash "db-name" *config*) (or (uiop:getenv "DB_NAME") "zapier_triggers_cl"))
   (setf (gethash "db-user" *config*) (or (uiop:getenv "DB_USER") "postgres"))
   (setf (gethash "db-pass" *config*) (or (uiop:getenv "DB_PASS") ""))
   (setf (gethash "db-host" *config*) (or (uiop:getenv "DB_HOST") "localhost"))

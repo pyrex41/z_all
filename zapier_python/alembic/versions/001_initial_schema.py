@@ -26,10 +26,10 @@ def upgrade() -> None:
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4),
         sa.Column('name', sa.String(255), nullable=False, index=True),
         sa.Column('api_key_hash', sa.String(255), nullable=False),
-        sa.Column('webhook_url', sa.String(2048), nullable=False),
-        sa.Column('rate_limit', sa.Integer(), nullable=False, server_default='100'),
-        sa.Column('plan', sa.String(50), nullable=False, server_default='free'),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+        sa.Column('webhook_url', sa.String(2048), nullable=True),
+        sa.Column('rate_limit_per_minute', sa.Integer(), nullable=False, server_default='100'),
+        sa.Column('tier', sa.String(255), nullable=False, server_default='free'),
+        sa.Column('inserted_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
     )
 
@@ -59,7 +59,6 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
     )
-    op.create_index('ix_event_deliveries_status', 'event_deliveries', ['status'])
 
     # Create audit_log table
     op.create_table(

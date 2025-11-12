@@ -5,7 +5,7 @@ config :zapier_triggers, ZapierTriggers.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "zapier_triggers_dev",
+  database: "zapier_triggers_elixir",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 50
