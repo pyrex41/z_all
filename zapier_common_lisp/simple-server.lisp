@@ -52,10 +52,10 @@
 (defvar *dedup-lock* (bt:make-lock "dedup-cache-lock") "Thread-safe lock for dedup cache")
 
 ;; Connection pool
-(defvar *db-pool* (make-array 20 :initial-element nil) "Database connection pool")
+(defvar *db-pool* (make-array 5 :initial-element nil) "Database connection pool")
 (defvar *db-pool-available* nil "List of available connection indices")
 (defvar *db-pool-lock* (bt:make-lock "db-pool-lock") "Lock for connection pool")
-(defvar *db-pool-size* 20 "Maximum database connections in pool")
+(defvar *db-pool-size* 5 "Maximum database connections in pool")
 
 ;; Rate limiting
 (defvar *rate-limiter* (make-hash-table :test 'equal) "Rate limiter: org-id -> (count . timestamp)")
