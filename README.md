@@ -131,7 +131,7 @@ curl -X POST https://zapier-elixir.fly.dev/api/keys/generate \
 
 ## 🚀 Benchmark Deployed Instances
 
-Use the unified test suite's performance dashboard to benchmark any deployed implementation:
+Use the unified test suite's benchmark tool to test any deployed implementation:
 
 ```bash
 # Clone the repo and navigate to the test suite
@@ -141,20 +141,20 @@ cd unified_test_suite
 uv sync
 
 # Run performance benchmark against a deployment
-./run_dashboard.sh python --url https://zapier-python.fly.dev --requests 500 --concurrency 10
-./run_dashboard.sh elixir --url https://zapier-elixir.fly.dev --requests 1000 --concurrency 25
-./run_dashboard.sh rust --url https://zapier-triggers-rust.fly.dev --requests 5000 --concurrency 50
-./run_dashboard.sh lisp --url https://zapier-triggers-lisp.fly.dev --requests 1000 --concurrency 25
+PYTHON_URL=https://zapier-python.fly.dev uv run python benchmark_single.py python 500 10
+ELIXIR_URL=https://zapier-elixir.fly.dev uv run python benchmark_single.py elixir 2000 50
+RUST_URL=https://zapier-triggers-rust.fly.dev uv run python benchmark_single.py rust 5000 100
+LISP_URL=https://zapier-triggers-lisp.fly.dev uv run python benchmark_single.py lisp 1000 25
 ```
 
 **Features:**
-- Real-time progress tracking with live metrics
+- Clean, concise output with progress bar
 - Comprehensive latency distribution (min, avg, median, P95, P99, max)
-- Success rate monitoring
+- 100% success rate validation
 - Automatic API key generation
-- JSON results for further analysis
+- Throughput (req/s) calculation
 
-📖 See [unified_test_suite/performance_dashboard/README.md](unified_test_suite/performance_dashboard/README.md) for full documentation
+**Usage:** `benchmark_single.py <impl> <total_requests> <concurrency>`
 
 ## Quick Start
 
@@ -554,7 +554,7 @@ Built as a comparative study of modern web frameworks and programming paradigms 
   - Rust API: http://localhost:8080
   - Common Lisp API: http://localhost:5001
 - **Tools & Docs:**
-  - Performance Dashboard: [unified_test_suite/performance_dashboard/](unified_test_suite/performance_dashboard/)
+  - Benchmark Tool: [unified_test_suite/benchmark_single.py](unified_test_suite/benchmark_single.py)
   - Test Suite: [unified_test_suite/](unified_test_suite/)
   - Session Logs: [log_docs/](log_docs/)
   - Comparison: [COMPARISON_SUMMARY.md](COMPARISON_SUMMARY.md)
