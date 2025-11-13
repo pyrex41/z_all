@@ -53,7 +53,8 @@
              :status 400
              :code "missing_payload")))
 
-        ;; Fast dedup check: in-memory cache first, then DB fallback
+        ;; Ultra-fast dedup check: in-memory cache only (microseconds)
+        ;; DB dedup check moved to background worker for <10ms latency
         (when dedup-id
           ;; Check cache first (microseconds)
           (when (zapier-triggers.utils:dedup-cache-check org-id dedup-id)
@@ -63,23 +64,7 @@
                :status 409
                :code "duplicate_event")))
 
-          ;; Not in cache, check DB (milliseconds)
-          (zapier-triggers.db:with-connection
-            (let ((existing (postmodern:query
-                            "SELECT id FROM events
-                             WHERE organization_id = $1 AND dedup_id = $2"
-                            org-id dedup-id
-                            :single)))
-              (when existing
-                ;; Add to cache for future fast lookups
-                (zapier-triggers.utils:dedup-cache-add org-id dedup-id)
-                (return-from create-event-handler
-                  (zapier-triggers.utils:json-error-response
-                   "Duplicate event"
-                   :status 409
-                   :code "duplicate_event")))))
-
-          ;; Not duplicate, add to cache preemptively
+          ;; Not in cache - add preemptively and let worker verify
           (zapier-triggers.utils:dedup-cache-add org-id dedup-id))
 
         ;; Enqueue event for async processing (instant response)
