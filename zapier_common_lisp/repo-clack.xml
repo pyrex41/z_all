@@ -1,0 +1,2057 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  FUNDING.yml
+roswell/
+  clackup.ros
+src/
+  handler/
+    hunchentoot.lisp
+    toot.lisp
+    wookie.lisp
+  test/
+    suite.lisp
+  clack.lisp
+  handler.lisp
+  socket.lisp
+  test.lisp
+  util.lisp
+t/
+  handler/
+    hunchentoot.lisp
+    toot.lisp
+    wookie.lisp
+  nginx.conf
+.gitignore
+.travis.yml
+clack-handler-hunchentoot.asd
+clack-handler-toot.asd
+clack-handler-wookie.asd
+clack-socket.asd
+clack-test.asd
+clack.asd
+CONTRIBUTING.md
+LICENSE
+README.markdown
+t-clack-handler-hunchentoot.asd
+t-clack-handler-toot.asd
+t-clack-handler-wookie.asd
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/FUNDING.yml">
+github: [fukamachi]
+</file>
+
+<file path="roswell/clackup.ros">
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+
+#|
+A command-line interface for clack:clackup.
+|#
+
+(ql:quickload '(:uiop :split-sequence) :silent t)
+
+(import 'split-sequence:split-sequence)
+
+(defun help ()
+  (format t "~&Usage:
+    # run the .lisp file
+    ~A hello.lisp
+
+    # switch server handler with --server
+    ~:*~A --server :wookie --port 8080 hello.lisp
+
+The .lisp file is a Common Lisp file which ends with a form
+that returns a Clack application, typically LAMBDA.
+
+Options:
+    --server
+        Selects a specific server handler to run on.
+        The value has to be a keyword like \":wookie\".
+
+    --address
+        Binds to a TCP interface. Defaults to 127.0.0.1. This option is only valid for servers which support TCP sockets.
+
+    --port
+        Binds to a TCP port. Defaults to 5000.
+
+    --swank-interface
+    --swank-port
+        Runs Swank server.
+
+    --use-default-middlewares
+        A flag if use default middlewares. The default is T.
+        Specify NIL for preventing from loading those middlewares.
+
+    -S, --source-registry
+        Append ASDF source registry to the default.
+        (Unlike Roswell's, this doesn't override it)
+
+    -s, --system
+        Load systems.
+
+    -l, --load
+        Load a file before starting a server.
+
+    --help
+        Shows this message.
+"
+          (read-from-string
+           (second (assoc "script"
+                          (let ((*read-eval*))
+                            (read-from-string (uiop:getenv "ROS_OPTS")))
+                          :test 'equal)))))
+
+;; Prevent a symbol conflict with CCL:TERMINATE.
+(defun %terminate (code &optional message args)
+  (when message
+    (format *error-output* "~&Error: ~A~%"
+            (apply #'format nil (princ-to-string message) args)))
+  (uiop:quit code))
+
+(defun starts-with (x starts)
+  (and (<= (length starts) (length x))
+       (string= x starts :end1 (length starts))))
+
+(defun parse-args (args)
+  (flet ((parse-value (value)
+           (handler-case
+               (let ((read-value (read-from-string value)))
+                 (typecase read-value
+                   (boolean read-value)
+                   ((and symbol (not keyword)) value)
+                   (otherwise read-value)))
+             (error ()
+               value))))
+    (loop with app-file = nil
+          for option = (pop args)
+          for value = (pop args)
+          while option
+          if (or (string= option "--source-registry")
+                 (string= option "-S"))
+            append (list :source-registry value)
+              into opt-args
+          else if (or (string= option "--system")
+                      (string= option "-s"))
+                 collect value into load-systems
+          else if (or (string= option "--load")
+                      (string= option "-l"))
+                 collect value into load-files
+          else if (not (starts-with option "--"))
+            do (if app-file
+                   (error "Invalid option: ~S" option)
+                   (progn
+                     (setf app-file option)
+                     (push value args)))
+          else if (string-equal option "--server")
+                 append (list :server
+                              (let ((parsed (parse-value value)))
+                                (if (keywordp parsed)
+                                    parsed
+                                    (intern (string-upcase value) :keyword))))
+                   into key-args
+          else
+            append (list (intern (string-upcase (subseq option 2)) :keyword)
+                         (parse-value value))
+              into key-args
+          finally
+             (return (values app-file key-args
+                             (list* :load load-files :systems load-systems opt-args))))))
+
+(defun parse-server-starter-port ()
+  (flet ((parse-host-port (host-port)
+           (parse-integer
+            (let ((colon-pos (position #\: host-port)))
+              (if colon-pos
+                  (subseq host-port (1+ colon-pos))
+                  host-port)))))
+    (let ((ss-ports (uiop:getenv "SERVER_STARTER_PORT")))
+      (when (stringp ss-ports)
+        (destructuring-bind (host-port fd)
+            (split-sequence #\=
+                            ;; Assuming the first binding is for the Clack web server.
+                            (car (split-sequence #\; ss-ports :count 1)))
+          (values (parse-host-port host-port)
+                  (parse-integer fd)))))))
+
+(defun main (&rest args)
+  (when (or (null args)
+            (equal (first args) "--help"))
+    (help)
+    (uiop:quit -1))
+
+  (ql:quickload :clack :silent t)
+
+  (multiple-value-bind (app-file key-args opt-args)
+      (parse-args args)
+    (unless (probe-file app-file)
+      (%terminate -1 "File doesn't exist: ~A" app-file))
+
+    ;; Add ASDF source-registry
+    (when (getf opt-args :source-registry)
+      (asdf:compute-source-registry (truename (getf opt-args :source-registry))))
+
+    ;; Load systems
+    (mapc #'ql:quickload (getf opt-args :systems))
+
+    ;; Load files
+    (mapc #'load (getf opt-args :load))
+
+    ;; Add :port and :fd from Server::Starter's environment var.
+    (multiple-value-bind (port fd)
+        (parse-server-starter-port)
+      (when port
+        (setf key-args (append key-args (list :port port :fd fd)))))
+
+    ;; Disable threads
+    (setf (getf key-args :use-thread) nil)
+
+    ;; Disable debugger
+    (setf (getf key-args :debug) nil)
+
+    (apply (intern (string :clackup) :clack) app-file key-args)))
+</file>
+
+<file path="src/handler/hunchentoot.lisp">
+(in-package :cl-user)
+(defpackage clack.handler.hunchentoot
+  (:use :cl
+        :split-sequence)
+  (:import-from :hunchentoot
+                :acceptor-taskmaster
+                :acceptor-process
+                :acceptor-shutdown-p)
+  (:import-from :flexi-streams
+                :make-external-format
+                :string-to-octets
+                :*substitution-char*)
+  (:import-from #:bordeaux-threads
+                #:make-lock
+                #:with-lock-held)
+  (:import-from :alexandria
+                :when-let)
+  (:export :run))
+(in-package :clack.handler.hunchentoot)
+
+(defvar *client-socket*)
+
+(defclass client ()
+  ((stream :initarg :stream
+           :reader client-stream)
+   (socket :initarg :socket
+           :reader client-socket)
+   (read-callback :initarg :read-callback
+                  :initform nil
+                  :accessor client-read-callback)
+   (write-lock :initform (bt2:make-lock)
+               :reader client-write-lock)))
+
+(defun initialize ()
+  (setf hunchentoot:*hunchentoot-default-external-format*
+        (flex:make-external-format :utf-8 :eol-style :lf)
+        hunchentoot:*default-content-type* "text/html; charset=utf-8"
+        hunchentoot:*catch-errors-p* t
+        ;; Not logging 'Broken pipe'
+        hunchentoot:*log-lisp-errors-p* nil))
+
+(defclass clack-acceptor (hunchentoot:acceptor)
+  ((app :initarg :app
+        :initform (error ":app is required")
+        :accessor acceptor-app)
+   (debug :initarg :debug
+          :initform nil
+          :accessor acceptor-debug)))
+
+#-hunchentoot-no-ssl
+(defclass clack-ssl-acceptor (clack-acceptor hunchentoot:ssl-acceptor) ())
+
+(defgeneric acceptor-handle-request (acceptor req)
+  (:method ((acceptor clack-acceptor) req)
+    (handle-request req :ssl nil))
+  #-hunchentoot-no-ssl
+  (:method  ((acceptor clack-ssl-acceptor) req)
+    (handle-request req :ssl t)))
+
+(defmethod hunchentoot:acceptor-dispatch-request ((acceptor clack-acceptor) req)
+  (let ((app (acceptor-app acceptor))
+        (env (acceptor-handle-request acceptor req))
+        (hunchentoot:*catch-errors-p* nil))
+    (if (acceptor-debug acceptor)
+        (handle-response (funcall app env))
+        (handler-case (handle-response (funcall app env))
+          (error (error)
+            (princ error *error-output*)
+            (handle-response '(500 () ("Internal Server Error"))))))))
+
+(defmethod hunchentoot:process-connection :around ((acceptor clack-acceptor) socket)
+  (let ((flex:*substitution-char* #-(or abcl lispworks) #\Replacement_Character
+                                  #+lispworks #\Replacement-Character
+                                  #+abcl #\?)
+        (*client-socket* socket))
+    (call-next-method)))
+
+(defun run (app &rest args
+            &key debug (address "127.0.0.1") (port 5000)
+              ssl ssl-key-file ssl-cert-file ssl-key-password
+              max-thread-count max-accept-count (persistent-connections-p t))
+  "Start Hunchentoot server."
+  (cond
+    ((asdf::getenv "SERVER_STARTER_PORT")
+     (error "Hunchentoot handler doesn't work with Server::Starter."))
+    ((getf args :fd)
+     (error ":fd is specified though Hunchentoot handler cannot listen on fd")))
+
+  (initialize)
+  (let* ((taskmaster (when (and max-thread-count max-accept-count)
+                       (make-instance 'hunchentoot:one-thread-per-connection-taskmaster
+                                      :max-thread-count max-thread-count
+                                      :max-accept-count max-accept-count)))
+         (acceptor
+           (if ssl
+               (apply #'make-instance 'clack-ssl-acceptor
+                      :app app
+                      :debug debug
+                      :address address
+                      :port port
+                      :ssl-certificate-file ssl-cert-file
+                      :ssl-privatekey-file ssl-key-file
+                      :ssl-privatekey-password ssl-key-password
+                      :access-log-destination nil
+                      :persistent-connections-p persistent-connections-p
+                      (and taskmaster
+                           (list :taskmaster taskmaster)))
+               (apply #'make-instance 'clack-acceptor
+                      :app app
+                      :debug debug
+                      :address address
+                      :port port
+                      :access-log-destination nil
+                      :error-template-directory nil
+                      :persistent-connections-p persistent-connections-p
+                      (and taskmaster
+                           (list :taskmaster taskmaster))))))
+    (let* ((taskmaster (acceptor-taskmaster acceptor))
+           (threadedp (typep taskmaster 'hunchentoot:multi-threaded-taskmaster)))
+      (setf (hunchentoot:taskmaster-acceptor taskmaster) acceptor)
+      (unwind-protect
+          (progn
+            (hunchentoot:start acceptor)
+            #-lispworks
+            (when threadedp
+              (let ((thread (hunchentoot::acceptor-process taskmaster)))
+                (bt2:join-thread
+                  (if (typep thread 'bt2:thread)
+                      thread
+                      (bt2::ensure-thread-wrapper thread)))))
+            #+lispworks
+            (loop (sleep (expt 2 32))))
+        (hunchentoot:stop acceptor)))))
+
+(defun handle-response (res)
+  "Convert Response from Clack application into a string
+before passing to Hunchentoot."
+  (flet ((handle-normal-response (res)
+           (destructuring-bind (status headers &optional (body nil body-p)) res
+             (setf (hunchentoot:return-code*) status)
+             (loop for (k v) on headers by #'cddr
+                   if (eq k :set-cookie)
+                     do (rplacd (last (hunchentoot:headers-out*))
+                                (list (cons k v)))
+                   else if (eq k :content-type) do
+                     (setf (hunchentoot:content-type*) v)
+                   else if (eq k :content-length) do
+                     (setf (hunchentoot:content-length*) v)
+                   else if (hunchentoot:header-out k) do
+                     (setf (hunchentoot:header-out k)
+                           (format nil "~A, ~A" (hunchentoot:header-out k) v))
+                   else
+                     do (setf (hunchentoot:header-out k) v))
+
+             (unless body-p
+               (return-from handle-normal-response
+                 (let ((out (hunchentoot:send-headers)))
+                   (lambda (body &key (start 0) (end (length body)) (close nil))
+                     (handler-case
+                       (etypecase body
+                         (null)
+                         (string
+                           (write-sequence
+                             (flex:string-to-octets body
+                                                    :start start :end end
+                                                    :external-format hunchentoot:*hunchentoot-default-external-format*)
+                             out))
+                         ((vector (unsigned-byte 8))
+                          (write-sequence body out :start start :end end)))
+                       (type-error (e)
+                         (format *error-output* "Error when writing to socket: ~a~%" e)))
+                     (if close
+                         (finish-output out)
+                         (force-output out))))))
+
+             (handler-case
+               (etypecase body
+                 (null) ;; nothing to response
+                 (pathname
+                   (hunchentoot:handle-static-file body (getf headers :content-type)))
+                 (list
+                   (let ((out (hunchentoot:send-headers)))
+                     (dolist (chunk body)
+                       (write-sequence (flex:string-to-octets chunk
+                                                              :external-format hunchentoot:*hunchentoot-default-external-format*)
+                                       out))))
+                 ((vector (unsigned-byte 8))
+                  ;; I'm not convinced with this header should be send automatically or not
+                  ;; and not sure how to handle same way in other method so comment out
+                  ;;(setf (content-length*) (length body))
+                  (let ((out (hunchentoot:send-headers)))
+                    (write-sequence body out)
+                    (finish-output out))))
+               (type-error (e)
+                 (format *error-output* "Error when writing to socket: ~a~%" e))))))
+    (etypecase res
+      (list (handle-normal-response res))
+      (function (funcall res #'handle-normal-response)))
+    (values)))
+
+(defun handle-request (req &key ssl)
+  "Convert Request from server into a plist
+before passing to Clack application."
+  (destructuring-bind (server-name &optional (server-port "80"))
+      (split-sequence #\: (hunchentoot:host req) :from-end t)
+    (list
+     :request-method (hunchentoot:request-method* req)
+     :script-name ""
+     :path-info (hunchentoot:script-name* req)
+     :server-name server-name
+     :server-port (parse-integer server-port :junk-allowed t)
+     :server-protocol (hunchentoot:server-protocol* req)
+     :request-uri (hunchentoot:request-uri* req)
+     :url-scheme (if ssl "https" "http")
+     :remote-addr (hunchentoot:remote-addr* req)
+     :remote-port (hunchentoot:remote-port* req)
+     ;; Request params
+     :query-string (hunchentoot:query-string* req)
+     :raw-body (hunchentoot:raw-post-data :request req :want-stream t)
+     :content-length (when-let (content-length (hunchentoot:header-in* :content-length req))
+                       (parse-integer content-length :junk-allowed t))
+     :content-type (hunchentoot:header-in* :content-type req)
+     :clack.streaming t
+     :clack.io (make-instance 'client
+                              :socket *client-socket*
+                              :stream (hunchentoot::content-stream req))
+
+     :headers (loop with headers = (make-hash-table :test 'equal)
+                    for (k . v) in (hunchentoot:headers-in* req)
+                    unless (or (eq k :content-length)
+                               (eq k :content-type))
+                      do (setf (gethash (string-downcase k) headers) v)
+                    finally (return headers)))))
+
+(defmethod clack.socket:read-callback ((client client))
+  (client-read-callback client))
+
+(defmethod (setf clack.socket:read-callback) (callback (client client))
+  (setf (client-read-callback client) callback))
+
+(defmethod clack.socket:write-sequence-to-socket ((client client) data &key callback)
+  (bt2:with-lock-held ((client-write-lock client))
+    (let ((stream (client-stream client)))
+      (write-sequence data stream)
+      (force-output stream)))
+  (when callback
+    (funcall callback)))
+
+(defmethod clack.socket:close-socket ((client client))
+  (bt2:with-lock-held ((client-write-lock client))
+    (finish-output (client-stream client))))
+
+(defmethod clack.socket:flush-socket-buffer ((client client) &key callback)
+  (bt2:with-lock-held ((client-write-lock client))
+    (force-output (client-stream client)))
+  (when callback
+    (funcall callback)))
+
+(defmethod clack.socket:socket-async-p ((client client))
+  nil)
+
+(defmethod clack.socket:socket-stream ((client client))
+  (client-stream client))
+</file>
+
+<file path="src/handler/wookie.lisp">
+(in-package :cl-user)
+(defpackage clack.handler.wookie
+  (:use :cl)
+  (:import-from :wookie
+                :*state*
+                :wookie-state
+                :start-response
+                :send-response
+                :finish-response
+                :add-hook
+                :defroute
+                :listener
+                :ssl-listener
+                :start-server
+                :request-headers
+                :request-resource
+                :request-http
+                :request-body
+                :request-store-body
+                :request-method
+                :request-uri
+                :request-socket)
+  (:import-from :cl-async
+                :with-event-loop
+                :close-tcp-server
+                :async-io-stream
+                :socket-data
+                :write-socket-data)
+  (:import-from :fast-http
+                :http-version)
+  (:import-from :quri
+                :uri-path
+                :uri-query
+                :parse-uri
+                :url-decode)
+  (:import-from :flexi-streams
+                :make-in-memory-input-stream)
+  (:import-from :babel
+                :string-to-octets)
+  (:import-from :fast-io
+                :with-fast-output
+                :fast-write-sequence
+                :fast-write-byte)
+  (:import-from :split-sequence
+                :split-sequence)
+  (:import-from :alexandria
+                :copy-stream)
+  (:export :run))
+(in-package :clack.handler.wookie)
+
+;; XXX: :store-body keeps the whole POST data in-memory.
+(defun parsed-headers-hook (request)
+  (setf (wookie:request-store-body request) t))
+
+(defun run (app &rest args
+            &key (debug t) (address "127.0.0.1") (port 5000)
+              ssl ssl-key-file ssl-cert-file ssl-key-password)
+  (cond
+    ((asdf::getenv "SERVER_STARTER_PORT")
+     (error "Wookie handler doesn't work with Server::Starter."))
+    ((getf args :fd)
+     (error ":fd is specified though Wookie handler cannot listen on fd")))
+
+  (let ((*state* (make-instance 'wookie:wookie-state)))
+    (add-hook :parsed-headers 'parsed-headers-hook :clack-handler-wookie-parsed-headers-hook)
+    (defroute (:* ".*" :chunk nil) (req res)
+      (let ((env (handle-request req :ssl ssl)))
+        (handle-response
+         res
+         (if debug
+	     (restart-case
+		 (funcall app env)
+	       (throw-internal-server-error ()
+		 '(500 nil ("Internal Server Error"))))
+             (handler-case (funcall app env)
+               (error (error)
+                 (princ error *error-output*)
+                 '(500 nil ("Internal Server Error"))))))))
+    (handler-case
+        (as:with-event-loop ()
+          (let ((listener
+                  (if ssl
+                      (make-instance 'wookie:ssl-listener
+                                     :bind address
+                                     :port port
+                                     :key ssl-key-file
+                                     :certificate ssl-cert-file
+                                     :password ssl-key-password)
+                      (make-instance 'wookie:listener
+                                     :bind address
+                                     :port port))))
+            (start-server listener)))
+      (as:socket-closed () nil))))
+
+(defun handle-request (req &key ssl)
+  (let* ((quri (request-uri req))
+         (http-version (http-version (request-http req)))
+         (headers (request-headers req))
+         (content-length (gethash "content-length" headers)))
+
+    (destructuring-bind (server-name &optional server-port)
+        (split-sequence #\: (gethash "host" headers "") :from-end t :count 2)
+      (setf (quri:uri-path quri)
+            (nth-value 4 (quri:parse-uri (request-resource req))))
+      (list :request-method (request-method req)
+            :script-name ""
+            :server-name server-name
+            :server-port (if server-port
+                             (parse-integer server-port :junk-allowed t)
+                             80)
+            :server-protocol (intern (format nil "HTTP/~A" http-version)
+                                     :keyword)
+            :path-info (quri:url-decode (uri-path quri) :lenient t)
+            :query-string (uri-query quri)
+            :url-scheme (if ssl "https" "http")
+            :request-uri (request-resource req)
+            :raw-body (flex:make-in-memory-input-stream (wookie:request-body req))
+            :content-length (when content-length
+                              (parse-integer content-length :junk-allowed t))
+            :content-type (gethash "content-type" headers)
+            :clack.streaming t
+            :clack.nonblocking t
+            :clack.io (request-socket req)
+            :headers headers))))
+
+(defun handle-response (res clack-res)
+  (etypecase clack-res
+    (list (handle-normal-response res clack-res))
+    (function (funcall clack-res (lambda (clack-res)
+                                   (handler-case
+                                       (handle-normal-response res clack-res)
+                                     ;; Ignore when the socket is closed.
+                                     (as:socket-closed ())))))))
+
+(defun handle-normal-response (res clack-res)
+  (let ((no-body '#:no-body))
+    (destructuring-bind (status headers &optional (body no-body)) clack-res
+      ;; Returns a writer function for streaming response
+      (when (eq body no-body)
+        (let ((stream (start-response res
+                                      :status status
+                                      :headers headers)))
+          (return-from handle-normal-response
+            (lambda (body &key (start 0) (end (length body)) (close nil))
+              (etypecase body
+                (null)
+                (string (write-sequence (babel:string-to-octets body :start start :end end) stream))
+                ((vector (unsigned-byte 8)) (write-sequence body stream :start start :end end)))
+              (when close
+                (finish-response res))))))
+
+      (etypecase body
+        ;; Just send the headers and status.
+        (null (send-response res :status status :headers headers))
+        (pathname
+         (let ((stream (start-response res
+                                       :status status
+                                       :headers headers)))
+           (with-open-file (in body
+                               :direction :input
+                               :element-type '(unsigned-byte 8))
+             (copy-stream in stream))
+           (finish-response res)))
+        (list
+         (send-response res
+                        :status status
+                        :headers headers
+                        :body (if (null (cdr body))
+                                  (car body)
+                                  (with-fast-output (buffer :vector)
+                                    (dolist (str body)
+                                      (fast-write-sequence (babel:string-to-octets str) buffer))))))
+        ((vector (unsigned-byte 8))
+         (send-response res
+                        :status status
+                        :headers headers
+                        :body body))))))
+
+(defmethod clack.socket:read-callback ((socket as:socket))
+  (getf (as:socket-data socket) :parser))
+
+(defmethod (setf clack.socket:read-callback) (callback (socket as:socket))
+  (setf (getf (as:socket-data socket) :parser) callback))
+
+(defmethod clack.socket:write-sequence-to-socket ((socket as:socket) data &key callback)
+  (as:write-socket-data socket data
+                        :write-cb
+                        (and callback
+                             (lambda (socket)
+                               (declare (ignore socket))
+                               (funcall callback)))))
+
+(defmethod clack.socket:close-socket ((socket as:socket))
+  (unless (as:socket-closed-p socket)
+    (as:close-socket socket)))
+
+(defmethod clack.socket:socket-async-p ((socket as:socket))
+  t)
+</file>
+
+<file path="src/test/suite.lisp">
+(in-package :cl-user)
+(defpackage clack.test.suite
+  (:use :cl
+        :rove)
+  (:import-from :clack.test
+                :*clack-test-handler*
+                :*clack-test-port*
+                :*clack-test-access-port*
+                :*enable-debug*
+                :testing-app)
+  (:import-from :flexi-streams
+                :octet
+                :octets-to-string)
+  (:import-from :http-body
+                :parse)
+  (:import-from :cl-ppcre
+                :scan)
+  (:export :run-server-tests))
+(in-package :clack.test.suite)
+
+(defvar *clack-pathname*
+  (asdf:system-source-directory :clack))
+
+(defun localhost (&optional (path "/"))
+  (clack.test:localhost path *clack-test-access-port*))
+
+(defun run-server-tests (handler-name)
+  "Run tests for clack.handler.
+Handler name is a keyword and doesn't include the clack.handler prefix.
+For example, if you have a handler `clack.handler.foo',
+you would call like this: `(run-server-tests :foo)'."
+  (let ((*clack-test-handler* handler-name)
+        (*package* (find-package :clack.test.suite))
+        (dex:*use-connection-pool* nil))
+    #+thread-support
+    (rove:run-suite :clack.test.suite)
+    #-thread-support
+    (skip "Handler tests because your Lisp doesn't support threads")))
+
+(defun get-header (headers key)
+  (gethash (string-downcase key) headers))
+
+(defun file-size (file)
+  (with-open-file (in file :direction :input)
+    (file-length in)))
+
+
+;; Tests
+
+(deftest response-tests
+  (testing-app "list"
+    (lambda (env)
+      (declare (ignore env))
+      '(200 (:content-type "text/plain") ("Hello" "World")))
+    (multiple-value-bind (body status)
+        (dex:get (localhost))
+      (ok (eql status 200))
+      (ok (equal body "HelloWorld"))))
+
+  (testing-app "pathname (plain/text)"
+      (lambda (env)
+        (declare (ignore env))
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          ,(merge-pathnames #p"tmp/file.txt" *clack-pathname*)))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (ppcre:scan "This is a text for test." body))))
+
+  (testing-app "pathname (binary)"
+      (lambda (env)
+        (declare (ignore env))
+        (let ((file (merge-pathnames #p"tmp/redhat.png" *clack-pathname*)))
+          `(200
+            (:content-type "image/png"
+             :content-length ,(file-size file))
+            ,file)))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/redhat.png"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "image/png"))
+      (if (eq *clack-test-handler* :wookie)
+          (ok (equal (get-header headers :transfer-encoding) "chunked")
+              "Wookie always returns with Transfer-Encoding: chunked and no Content-Length.")
+          (ok (get-header headers :content-length)))
+      (ok (eql (length body) 12155))))
+
+  (testing-app "bigger file"
+      (lambda (env)
+        (declare (ignore env))
+        (let ((file (merge-pathnames #p"tmp/jellyfish.jpg" *clack-pathname*)))
+          `(200
+            (:content-type "image/jpeg"
+             :content-length ,(file-size file))
+            ,file)))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/jellyfish.jpg"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "image/jpeg"))
+      (if (eq *clack-test-handler* :wookie)
+          (ok (equal (get-header headers :transfer-encoding) "chunked")
+              "Wookie always returns with Transfer-Encoding: chunked and no Content-Length.")
+          (ok (get-header headers :content-length)))
+      (ok (eql (length body) 139616))))
+
+  (testing-app "multi headers (response)"
+      (lambda (env)
+        (declare (ignore env))
+        `(200
+          (:content-type "text/plain; charset=utf-8"
+           :x-foo "foo"
+           :x-foo "bar, baz")
+          ("hi")))
+    (let ((headers (nth-value 2 (dex:get (localhost)))))
+      (ok (ppcre:scan "foo,\\s*bar,\\s*baz" (get-header headers :x-foo)))))
+
+  ;; NOTE: This may fail on Hunchentoot because of its bug.
+  ;;   Hunchentoot returns Content-Type header
+  ;;   though 304 Not Modified.
+  ;; And Wookie also always returns Transfer-Encoding header.
+  (testing-app "no entity headers on 304"
+      (lambda (env)
+        (declare (ignore env))
+        `(304 nil nil))
+    (if (or (eq *clack-test-handler* :hunchentoot)
+            (eq *clack-test-handler* :toot)
+            (eq *clack-test-handler* :wookie))
+        (skip (format nil "Skipped because of ~:(~A~)'s bug" *clack-test-handler*))
+        (multiple-value-bind (body status headers)
+            (dex:get (localhost))
+          (ok (eql status 304))
+          (ok (equalp body #()))
+          (ok (null (nth-value 1 (get-header headers :content-type))) "No Content-Type")
+          (ok (null (nth-value 1 (get-header headers :content-length))) "No Content-Length")
+          (ok (null (nth-value 1 (get-header headers :transfer-encoding))) "No Transfer-Encoding"))))
+
+  (testing-app "CRLF output"
+      (lambda (env)
+        (declare (ignore env))
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(format nil "Foo: Bar~A~A~A~AHello World"
+                    #\Return #\NewLine #\Return #\NewLine))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost))
+      (ok (eql status 200))
+      (ok (null (get-header headers :foo)))
+      (ok (equal body (format nil "Foo: Bar~A~A~A~AHello World"
+                              #\Return #\NewLine #\Return #\NewLine)))))
+
+  (testing-app "test 404"
+      (lambda (env)
+        (declare (ignore env))
+        '(404
+          (:content-type "text/plain; charset=utf-8")
+          ("Not Found")))
+    (multiple-value-bind (body status)
+        (handler-bind ((dex:http-request-not-found #'dex:ignore-and-continue))
+          (dex:get (localhost)))
+      (ok (eql status 404))
+      (ok (equal body "Not Found"))))
+
+  (testing-app "Content-Length 0 is not set Transfer-Encoding"
+      (lambda (env)
+        (declare (ignore env))
+        `(200
+          (:content-length 0
+           :content-type "text/plain")
+          ("")))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost))
+      (ok (eql status 200))
+      (ok (null (get-header headers :client-transfer-encoding)))
+      (ok (equal body "")))))
+
+(deftest env-tests
+  (testing-app "SCRIPT-NAME"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :script-name))))
+    (ok (member (dex:get (localhost)) '(nil "") :test #'equal)))
+
+  (testing-app "url-scheme"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :url-scheme))))
+    (multiple-value-bind (body status headers)
+        (dex:post (localhost))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (equal body "http"))))
+
+  (testing-app "handle HTTP-Header"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(gethash "foo" (getf env :headers)))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/foo/?ediweitz=weitzedi")
+                 :headers '(("Foo" . "Bar")))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (equal body "Bar"))))
+
+  (testing-app "validate env"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(with-output-to-string (str)
+              (loop for h in '(:request-method
+                               :path-info
+                               :query-string
+                               :server-name
+                               :server-port)
+                    do (format str "~A:~S~%" h (getf env h)))))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/foo/?ediweitz=weitzedi"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (equal body (format nil "~{~A~%~}"
+                              `("REQUEST-METHOD::GET"
+                                "PATH-INFO:\"/foo/\""
+                                "QUERY-STRING:\"ediweitz=weitzedi\""
+                                "SERVER-NAME:\"127.0.0.1\""
+                                ,(format nil "SERVER-PORT:~D" *clack-test-access-port*)))))))
+
+  (testing-app "validate env (must be integer)"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(with-output-to-string (str)
+              (loop for h in '(:server-port
+                               :remote-port
+                               :content-length)
+                    do (format str "~A:~A~%" h (typep (getf env h) '(or integer null))))))))
+    (multiple-value-bind (body status headers)
+        (dex:post (localhost)
+                  :content '(("name" . "eitaro")))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (equal body (format nil "~{~{~A:~A~%~}~}"
+                              `((:server-port t)
+                                (:remote-port t)
+                                (:content-length t)))))))
+
+  (testing-app "% encoding in PATH-INFO"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :path-info))))
+    (ok (equal (dex:get (localhost "/foo/bar%2cbaz")) "/foo/bar,baz")))
+
+  (testing-app "% double encoding in PATH-INFO"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :path-info))))
+    (ok (equal (dex:get (localhost "/foo/bar%252cbaz")) "/foo/bar%2cbaz")))
+
+  (testing-app "% encoding in PATH-INFO (outside of URI characters)"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :path-info))))
+    (ok (equal (dex:get (localhost "/foo%E3%81%82"))
+               (format nil "/foo~A"
+                       (flex:octets-to-string #(#xE3 #x81 #x82) :external-format :utf-8)))))
+
+  (testing-app "Invalid UTF-8 encoded PATH-INFO"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :path-info))))
+    (if (eq *clack-test-handler* :wookie)
+        (skip "Skipped because do-urlencode Wookie uses cannot decode invalid UTF8 strings anyways")
+        (ok (ppcre:scan (format nil "/あ~A"
+                                #+abcl "\\?"
+                                #-abcl #\Replacement_Character)
+                        (dex:get (localhost "/%E3%81%82%BF%27%22%28"))))))
+
+  (testing-app "SERVER-PROTOCOL is required"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(prin1-to-string (getf env :server-protocol)))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/foo/?ediweitz=weitzedi"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (ppcre:scan "^:HTTP/1\\.[01]$" body))))
+
+  (testing-app "SCRIPT-NAME should not be nil"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(princ-to-string (not (null (getf env :script-name)))))))
+    (ok (equal (dex:get (localhost "/foo/?ediweitz=weitzedi"))
+               (string t))))
+
+  (testing-app "Do not set COOKIE"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8"
+           :x-cookie ,(not (null (getf env :cookie))))
+          (,(gethash "cookie" (getf env :headers)))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost)
+                 :headers '(("Cookie" . "foo=bar")))
+      (ok (eql status 200))
+      (ok (null (get-header headers :x-cookie)))
+      (ok (equal body "foo=bar"))))
+
+  (testing-app "REQUEST-URI is set"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :request-uri))))
+    (if (eq *clack-test-handler* :toot)
+        (skip "Skipped because of Toot's bug")
+        (ok (equal (dex:get (localhost "/foo/bar%20baz%73?x=a")) "/foo/bar%20baz%73?x=a")))))
+
+(deftest request-tests
+  (testing-app "GET"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(format nil "Hello, ~A" (getf env :query-string)))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/?name=fukamachi"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type)
+                 "text/plain; charset=utf-8"))
+      (ok (equal body "Hello, name=fukamachi"))))
+
+  (testing-app "POST"
+      (lambda (env)
+        (let ((body (make-array 11 :element-type '(unsigned-byte 8))))
+          (read-sequence body (getf env :raw-body))
+          `(200
+            (:content-type "text/plain; charset=utf-8"
+             :client-content-length ,(getf env :content-length)
+             :client-content-type ,(getf env :content-type))
+            (,(format nil "Hello, ~A" (babel:octets-to-string body))))))
+    (multiple-value-bind (body status headers)
+        (dex:post (localhost)
+                  :content '(("name" . "eitaro")))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :client-content-length) "11"))
+      (ok (equal (get-header headers :client-content-type) "application/x-www-form-urlencoded"))
+      (ok (equal body "Hello, name=eitaro"))))
+
+  (testing-app "big POST"
+      (lambda (env)
+        (let ((body
+                (make-array (getf env :content-length)
+                            :element-type 'octet)))
+          (read-sequence body (getf env :raw-body))
+          `(200
+            (:content-type "text/plain; charset=utf-8"
+             :client-content-length ,(getf env :content-length)
+             :client-content-type ,(getf env :content-type))
+            (,(flex:octets-to-string body)))))
+    (let* ((chunk
+             (with-output-to-string (chunk)
+               (dotimes (i 12000) (write-string "abcdefgh" chunk))
+               chunk))
+           (len (length chunk)))
+      (multiple-value-bind (body status headers)
+          (dex:post (localhost)
+                    :headers
+                    `((:content-type . "application/octet-stream")
+                      (:content-length . ,len))
+                    :content chunk)
+        (ok (eql status 200))
+        (ok (equal (get-header headers :client-content-length)
+                   (princ-to-string len)))
+        (ok (equal (length body) len)))))
+
+  (testing-app "big POST (chunked)"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8"
+           :client-content-length ,(getf env :content-length)
+           :client-content-type ,(getf env :content-type))
+          (,(let* ((body (getf env :raw-body))
+                   (buffer (make-array 1024 :element-type '(unsigned-byte 8))))
+              (apply #'concatenate 'string
+                     (loop for read-bytes = (read-sequence buffer body)
+                           collect (flex:octets-to-string (subseq buffer 0 read-bytes))
+                           while (= read-bytes 1024)))))))
+    (let* ((chunk
+             (with-output-to-string (chunk)
+               (dotimes (i 12000) (write-string "abcdefgh" chunk))
+               chunk))
+           (len (length chunk)))
+      (multiple-value-bind (body status headers)
+          (dex:post (localhost)
+                    :headers '((:content-type . "application/octet-stream")
+                               (:content-length . nil))
+                    :content chunk)
+        (ok (eql status 200))
+        (ok (null (get-header headers :client-content-length)))
+        (ok (equal (length body) len)))))
+
+  (testing-app "multi headers (request)"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(gethash "foo" (getf env :headers)))))
+    (ok (ppcre:scan
+          "^bar,\\s*baz$"
+          (dex:get (localhost)
+                   :headers '(("Foo" . "bar")
+                              ("Foo" . "baz"))))))
+
+  (testing-app "a big header value > 128 bytes"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(gethash "x-foo" (getf env :headers)))))
+    (let ((chunk
+            (with-output-to-string (chunk)
+              (dotimes (i 12000) (write-string "abcdefgh" chunk))
+              chunk)))
+      (handler-bind ((dex:http-request-failed #'dex:ignore-and-continue))
+        (multiple-value-bind (body status)
+            (dex:get (localhost)
+                     :headers `(("X-Foo" . ,chunk)))
+          (ok (eql status 200))
+          (ok (equal body chunk))))))
+
+  (testing-app "request -> input seekable"
+      (lambda (env)
+        (let ((body (make-array 4 :element-type '(unsigned-byte 8))))
+          (read-sequence body (getf env :raw-body))
+          `(200
+            (:content-type "text/plain; charset=utf-8")
+            (,(babel:octets-to-string body)))))
+    (ok (equal (dex:post (localhost)
+                         :content "body")
+               "body")))
+
+  (testing-app "handle Authorization header"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8"
+           :x-authorization ,(not (null (gethash "authorization" (getf env :headers)))))
+          (,(gethash "authorization" (getf env :headers) ""))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost)
+                 :headers '(("Authorization" . "Basic XXXX")))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :x-authorization)
+                 (string t)))
+      (ok (equal body "Basic XXXX")))
+    ;; XXX: On Wookie handler, this raises USOCKET:CONNECTION-REFUSED-ERROR.
+    (unless (eq *clack-test-handler* :wookie)
+      (multiple-value-bind (body status headers)
+          (dex:get (localhost))
+        (ok (eql status 200))
+        (ok (null (get-header headers :x-authorization)))
+        (ok (member body '(nil "") :test #'equal)))))
+
+  (testing-app "repeated slashes"
+      (lambda (env)
+        `(200
+          (:content-type "text/plain; charset=utf-8")
+          (,(getf env :path-info))))
+    (multiple-value-bind (body status headers)
+        (dex:get (localhost "/foo///bar/baz"))
+      (ok (eql status 200))
+      (ok (equal (get-header headers :content-type) "text/plain; charset=utf-8"))
+      (ok (equal body "/foo///bar/baz"))))
+
+  (testing-app "file upload"
+      (lambda (env)
+        (destructuring-bind (name body params headers)
+            (car (http-body:parse
+                  (getf env :content-type)
+                  (getf env :content-length)
+                  (getf env :raw-body)))
+          (declare (ignore name params headers))
+          `(200
+            (:content-type "text/plain; charset=utf-8")
+            (,(let* ((buffer (make-array 1024 :element-type '(unsigned-byte 8)))
+                     (read-bytes (read-sequence buffer body)))
+                (flex:octets-to-string (subseq buffer 0 read-bytes)))))))
+    (multiple-value-bind (body status)
+        (dex:post (localhost)
+                  :content
+                  `(("file" . ,(merge-pathnames #p"tmp/file.txt" *clack-pathname*))))
+      (ok (eql status 200))
+      (ok (equal body "This is a text for test.
+"))))
+
+  (testing-app "large file upload"
+      (lambda (env)
+        (destructuring-bind (name body params headers)
+            (car (http-body:parse
+                  (getf env :content-type)
+                  (getf env :content-length)
+                  (getf env :raw-body)))
+          (declare (ignore name params headers))
+          (let ((body-file
+                  (uiop:with-temporary-file (:stream out :pathname tmp
+                                             :direction :output
+                                             :element-type '(unsigned-byte 8)
+                                             :keep t)
+                    (alexandria:copy-stream body out)
+                    tmp)))
+            `(200
+              (:content-type "text/plain")
+              (,(if (equalp (ironclad:digest-file :sha1 body-file)
+                            (ironclad:digest-file :sha1 (merge-pathnames #p"tmp/jellyfish.jpg" *clack-pathname*)))
+                    "ok"
+                    (format nil "ng (~A)" body-file)))))))
+    (multiple-value-bind (body status)
+        (dex:post (localhost)
+                  :content
+                  `(("file" . ,(merge-pathnames #p"tmp/jellyfish.jpg" *clack-pathname*))))
+      (ok (eql status 200))
+      (ok (equal body "ok"))))
+
+  (testing-app "streaming"
+      (lambda (env)
+        (declare (ignore env))
+        (lambda (res)
+          (let ((writer (funcall res '(200 (:content-type "text/plain")))))
+            (loop for i from 0 to 2
+                  do (sleep 1)
+                     (funcall writer (format nil "~S~%" i)))
+            (funcall writer "" :close t))))
+    (if (find *clack-test-handler* '(:hunchentoot
+                                     :toot
+                                     :wookie
+                                     :woo))
+        (multiple-value-bind (body status)
+            (dex:get (localhost))
+          (ok (eql status 200))
+          (ok (equal body (format nil "0~%1~%2~%"))))
+        (skip (format nil "Skipped because ~:(~A~) doesn't support streaming" *clack-test-handler*)))))
+
+(deftest debug-tests
+  (let ((*enable-debug* nil)
+        (*error-output* (make-broadcast-stream)))
+    (testing-app "Do not crash when the app dies"
+        (lambda (env)
+          (declare (ignore env))
+          (error "Throwing an exception from app handler. Server shouldn't crash."))
+      (handler-case (dex:get (localhost))
+        (dex:http-request-internal-server-error ()
+          (pass "500 Internal Server Error"))))))
+</file>
+
+<file path="src/clack.lisp">
+(defpackage clack
+  (:use :cl)
+  (:import-from :clack.handler
+                :run
+                :stop)
+  (:import-from :clack.util
+                :find-handler)
+  (:import-from :lack
+                :builder)
+  (:import-from :alexandria
+                :delete-from-plist)
+  (:export :clackup
+           :eval-file
+           :stop))
+(in-package :clack)
+
+(defvar *app-file-cache*
+  (make-hash-table :test 'equal))
+
+(defun %load-file (file)
+  (with-open-file (in file)
+    (let ((*package* *package*)
+          (*readtable* *readtable*)
+          (*load-pathname* file)
+          (*load-truename* file))
+      (loop with results
+            with eof = '#:eof
+            for form = (read in nil eof)
+            until (eq form eof)
+            do (setf results (multiple-value-list (eval form)))
+            finally
+               (return (apply #'values results))))))
+
+(defun eval-file (file)
+  "Safer way to read and eval a file content. This function returns the last value."
+  (setf file (probe-file file))
+  (check-type file pathname)
+  (let ((modified-at (file-write-date file)))
+    (cond
+      ((< (car (gethash file *app-file-cache* '(0 . nil)))
+          modified-at)
+       (let ((app (%load-file file)))
+         (setf (gethash file *app-file-cache*)
+               (cons modified-at app))
+         app))
+      (t
+       (cdr (gethash file *app-file-cache*))))))
+
+(defmacro with-handle-interrupt (int-handler &body body)
+  (let ((main (gensym "MAIN")))
+    `(flet ((,main () ,@body))
+       #+(or sbcl ccl clisp allegro ecl)
+       (handler-case
+           (let (#+ccl (ccl:*break-hook* (lambda (condition hook)
+                                           (declare (ignore hook))
+                                           (error condition))))
+             (,main))
+         (#+sbcl sb-sys:interactive-interrupt
+          #+ccl  ccl:interrupt-signal-condition
+          #+clisp system::simple-interrupt-condition
+          #+ecl ext:interactive-interrupt
+          #+allegro excl:interrupt-signal
+          ()
+           (funcall ,int-handler)))
+       #-(or sbcl ccl clisp allegro ecl)
+       (,main))))
+
+(defun clackup (app &rest args
+                    &key (server :hunchentoot)
+                         (address "127.0.0.1")
+                         (port 5000)
+                         swank-interface
+                         swank-port
+                         (debug t)
+                         silent
+                         (use-thread #+thread-support t #-thread-support nil)
+                         (use-default-middlewares t)
+                    &allow-other-keys)
+  (declare (ignore swank-interface swank-port))
+  #-thread-support
+  (when use-thread
+    (error ":use-thread is T though there's no thread support."))
+  (flet ((buildapp (app)
+           (let* ((*features* (cons :clackup *features*))
+                  (app (typecase app
+                         ((or pathname string)
+                          (eval-file app))
+                         (otherwise app))))
+             (builder
+              (if use-default-middlewares
+                  :backtrace
+                  nil)
+              app))))
+    (let ((app (buildapp app)))
+      ;; Ensure the handler to be loaded.
+      (find-handler server)
+      (when (and (not use-thread)
+                 (not silent))
+        (format t "~&~:(~A~) server is going to start.~%Listening on ~A:~A.~%" server address port))
+      (with-handle-interrupt (lambda ()
+                               (format *error-output* "Interrupted"))
+        (prog1
+            (apply #'clack.handler:run app server
+                   :port port
+                   :debug debug
+                   :use-thread use-thread
+                   (delete-from-plist args :server :port :debug :silent :use-thread))
+          (when (and use-thread
+                     (not silent))
+            (format t "~&~:(~A~) server is started.~%Listening on ~A:~A.~%" server address port)))))))
+</file>
+
+<file path="src/handler.lisp">
+(in-package :cl-user)
+(defpackage clack.handler
+  (:use :cl)
+  (:import-from :clack.util
+                :find-handler)
+  (:import-from :bordeaux-threads
+                :threadp
+                :make-thread
+                :thread-alive-p
+                :destroy-thread)
+  (:import-from :usocket)
+  (:export :run
+           :stop))
+(in-package :clack.handler)
+
+(defstruct handler
+  server
+  swank-port
+  acceptor)
+
+(defun run (app server &rest args
+                &key (address nil address-specified-p) use-thread
+                     (swank-interface "127.0.0.1") swank-port debug
+                &allow-other-keys)
+  (let ((handler-package (find-handler server))
+        (bt2:*default-special-bindings* `((*standard-output* . ,*standard-output*)
+                                          (*error-output* . ,*error-output*)
+                                          ,@bt2:*default-special-bindings*)))
+    (when debug
+      (format t "NOTICE: Running in debug mode. Debugger will be invoked on errors.
+  Specify ':debug nil' to turn it off on remote environments."))
+    (flet ((run-server ()
+             (when swank-port
+               (swank:create-server :interface swank-interface :port swank-port :dont-close t))
+             (apply (intern #.(string '#:run) handler-package)
+                    app
+                    :allow-other-keys t
+                    (append
+                      (and address-specified-p
+                           (list :address
+                                 (usocket:host-to-hostname
+                                   (usocket:get-host-by-name address))))
+                      args))))
+      (make-handler
+        :server server
+        :swank-port swank-port
+        :acceptor (if use-thread
+                      (bt2:make-thread #'run-server
+                                       :name (format nil "clack-handler-~(~A~)" server)
+                                       :initial-bindings
+                                       `((bt2:*default-special-bindings* . ',bt2:*default-special-bindings*)
+                                         ,@bt2:*default-special-bindings*))
+                      (run-server))))))
+
+(defun stop (handler)
+  (let ((acceptor (handler-acceptor handler))
+        (swank-port (handler-swank-port handler)))
+    (if (bt2:threadp acceptor)
+        (progn
+          (when (bt2:thread-alive-p acceptor)
+            (bt2:destroy-thread acceptor))
+          (sleep 0.5))
+        (let ((package (find-handler (handler-server handler))))
+          (funcall (intern #.(string '#:stop) package) acceptor)))
+    (when swank-port
+      (swank:stop-server swank-port))
+    t))
+</file>
+
+<file path="src/socket.lisp">
+(in-package :cl-user)
+(defpackage clack.socket
+  (:use :cl)
+  (:export :read-callback
+           :close-socket
+           :write-sequence-to-socket
+           :write-byte-to-socket
+           :write-sequence-to-socket-buffer
+           :write-byte-to-socket-buffer
+           :flush-socket-buffer
+           :socket-async-p
+           :socket-stream))
+(in-package :clack.socket)
+
+;; required
+(defgeneric read-callback (socket))
+
+;; required
+(defgeneric (setf read-callback) (callback socket))
+
+;; required
+(defgeneric close-socket (socket))
+
+;; required.
+(defgeneric write-sequence-to-socket (socket data &key callback))
+
+;; optional. fallback to write-sequence-to-socket
+(defgeneric write-byte-to-socket (socket byte &key callback)
+  (:method (socket byte &key callback)
+    (write-sequence-to-socket socket
+                              (make-array 1 :element-type '(unsigned-byte 8)
+                                            :initial-contents (list byte))
+                              :callback callback)))
+
+;; optional. fallback to synchronous version
+(defgeneric write-sequence-to-socket-buffer (socket data)
+  (:method (socket data)
+    (write-sequence-to-socket socket data)))
+
+;; optional. fallback to synchronous version
+(defgeneric write-byte-to-socket-buffer (socket byte)
+  (:method (socket byte)
+    (write-byte-to-socket socket byte)))
+
+;; optional.
+(defgeneric flush-socket-buffer (socket &key callback)
+  (:method (socket &key callback)
+    (write-sequence-to-socket socket
+                              #.(make-array 0 :element-type '(unsigned-byte 8))
+                              :callback callback)))
+
+;; optional
+(defgeneric socket-async-p (socket)
+  (:method (socket)
+    t))
+
+;; optional
+;: required if socket-async-p returns nil
+(defgeneric socket-stream (socket))
+</file>
+
+<file path="src/test.lisp">
+(in-package :cl-user)
+(defpackage clack.test
+  (:use :cl)
+  (:import-from :clack
+                :clackup
+                :stop)
+  (:import-from :dexador
+                :*use-connection-pool*)
+  (:import-from :rove
+                :testing)
+  (:import-from :usocket
+                :socket-listen
+                :socket-close
+                :address-in-use-error
+                :socket-error)
+  (:export :*clack-test-handler*
+           :*clack-test-port*
+           :*clack-test-access-port*
+           :*clackup-additional-args*
+           :*enable-debug*
+           :*use-https*
+           :*random-port*
+           :localhost
+           :testing-app))
+(in-package :clack.test)
+
+(defvar *clack-test-handler* :hunchentoot
+  "Backend Handler to run tests on. String or Symbol are allowed.")
+
+(defvar *clack-test-port* 4242
+  "HTTP port number of Handler.")
+
+(defvar *clackup-additional-args* '()
+  "Additional arguments for clackup.")
+
+(defvar *clack-test-access-port* *clack-test-port*
+  "Port of localhost to request.
+Use if you want to set another port. The default is `*clack-test-port*`.")
+
+(defvar *enable-debug* t)
+(defvar *use-https* nil)
+
+(defvar *random-port* t)
+
+(defun port-available-p (port)
+  (let (socket)
+    (unwind-protect
+         (handler-case (progn
+                         (setq socket (usocket:socket-listen "127.0.0.1" port :reuse-address t))
+                         t)
+           (usocket:address-in-use-error () nil)
+           #+(and sbcl win32)
+           (sb-bsd-sockets:socket-error () nil)
+           (usocket:socket-error (e)
+             (warn "USOCKET:SOCKET-ERROR: ~A" e)
+             nil))
+      (when socket
+        (usocket:socket-close socket)
+        t))))
+
+(defun server-running-p (port)
+  (handler-case (let ((socket (usocket:socket-connect "127.0.0.1" port)))
+                  (usocket:socket-close socket)
+                  t)
+    #+sbcl (sb-bsd-sockets:interrupted-error () nil)
+    (usocket:socket-error () nil)
+    (usocket:connection-refused-error () nil)
+    (usocket:connection-reset-error () nil)))
+
+(defun random-port ()
+  "Return a port number not in use from 50000 to 60000."
+  (loop for port from (+ 50000 (random 1000)) upto 60000
+        if (port-available-p port)
+          return port))
+
+(defun localhost (&optional (path "/") (port *clack-test-access-port*))
+  (check-type path string)
+  (setf path
+        (cond
+          ((= 0 (length path)) "/")
+          ((not (char= (aref path 0) #\/))
+           (concatenate 'string "/" path))
+          (t path)))
+  (format nil "http~@[~*s~]://127.0.0.1:~D~A"
+          *use-https*
+          port path))
+
+(defun %testing-app (app client)
+  (let* ((*clack-test-port* (if *random-port*
+                                (random-port)
+                                *clack-test-port*))
+         (*clack-test-access-port* (if *random-port*
+                                       *clack-test-port*
+                                       *clack-test-access-port*))
+         (threads #+thread-support (bt2:all-threads)
+                  #-thread-support '()))
+    (loop repeat 5
+          until (port-available-p *clack-test-port*)
+          do (sleep 0.1)
+          finally
+             (unless (port-available-p *clack-test-port*)
+               (error "Port ~D is already in use." *clack-test-port*)))
+    (let ((acceptor (apply #'clackup app
+                           :server *clack-test-handler*
+                           :port *clack-test-port*
+                           :debug *enable-debug*
+                           :use-thread t
+                           :silent t
+                           *clackup-additional-args*))
+          (dex:*use-connection-pool* nil))
+      (loop until (server-running-p *clack-test-port*)
+            do (sleep 0.1))
+
+      (multiple-value-prog1
+          (unwind-protect (funcall client)
+            (stop acceptor)
+            ;; Ensure all threads are finished for preventing from leaking
+            #+thread-support
+            (dolist (thread (bt2:all-threads))
+              (when (and (not (find thread threads))
+                         (bt2:thread-alive-p thread))
+                (bt2:destroy-thread thread))))
+
+        (loop while (server-running-p *clack-test-port*)
+              do (sleep 0.1))))))
+
+(defmacro testing-app (desc app &body body)
+  `(%testing-app ,app (lambda () (testing ,desc ,@body))))
+</file>
+
+<file path="src/util.lisp">
+(in-package :cl-user)
+(defpackage clack.util
+  (:use :cl)
+  (:import-from :lack.util
+                :find-package-or-load)
+  (:export :find-handler))
+(in-package :clack.util)
+
+(defun find-handler (server)
+  (flet ((find-with-prefix (prefix)
+           (find-package-or-load (concatenate 'string
+                                              prefix
+                                              (symbol-name server)))))
+    (or (find-with-prefix #.(string '#:clack.handler.))
+        (error "~S is unknown handler."
+               server))))
+</file>
+
+<file path="t/handler/hunchentoot.lisp">
+(in-package :cl-user)
+(defpackage t.clack.handler.hunchentoot
+  (:use :cl
+        :clack.test
+        :clack.test.suite
+        :rove))
+(in-package :t.clack.handler.hunchentoot)
+
+(deftest hunchentoot-tests
+  (clack.test.suite:run-server-tests :hunchentoot))
+</file>
+
+<file path="t/handler/toot.lisp">
+(in-package :cl-user)
+
+(defpackage clack-test.handler.toot
+  (:use :cl
+        :clack.test.suite
+        :rove))
+
+(in-package :clack-test.handler.toot)
+
+(deftest toot-tests
+  (let ((*error-output* (make-broadcast-stream)))
+    (clack.test.suite:run-server-tests :toot)))
+</file>
+
+<file path="t/handler/wookie.lisp">
+(in-package :cl-user)
+(defpackage clack-test.handler.wookie
+  (:use :cl
+        :clack.test.suite
+        :rove))
+(in-package :clack-test.handler.wookie)
+
+(deftest wookie-tests
+  (let ((*error-output* (make-broadcast-stream)))
+    (clack.test.suite:run-server-tests :wookie)))
+</file>
+
+<file path="t/nginx.conf">
+events {
+    worker_connections  1024;
+}
+
+http {
+    include /home/travis/nginx/conf/mime.types;
+    access_log off;
+    error_log /dev/null crit;
+    server {
+        listen       4949;
+        server_name  localhost;
+        location / {
+            fastcgi_intercept_errors on;
+            fastcgi_pass 127.0.0.1:14949;
+            fastcgi_connect_timeout 30;
+            include /home/travis/nginx/conf/fastcgi_params;
+        }
+    }
+}
+</file>
+
+<file path=".gitignore">
+*.fasl
+*.dx32fsl
+*.dx64fsl
+*.lx32fsl
+*.lx64fsl
+*.x86f
+*.fas
+*.lib
+
+# editor backup/temp files
+*~
+</file>
+
+<file path=".travis.yml">
+language: common-lisp
+
+# Wookie handler fails with memory corruption when using Travis CI's new container-based architecture.
+sudo: required
+
+env:
+  global:
+    - PATH=~/.roswell/bin:~/nginx/sbin:$PATH
+    - LD_LIBRARY_PATH=$HOME/libuv/lib:$LD_LIBRARY_PATH
+    - C_INCLUDE_PATH=$HOME/libuv/include:$C_INCLUDE_PATH
+    - ROSWELL_BRANCH=release
+    - ROSWELL_INSTALL_DIR=$HOME/.roswell
+    - COVERAGE_EXCLUDE=t
+  matrix:
+    - LISP=sbcl-bin COVERALLS=true
+    - LISP=ccl-bin
+    - LISP=abcl
+    - LISP=ecl
+    - LISP=clisp
+
+matrix:
+  allow_failures:
+    - env: LISP=ecl
+    - env: LISP=clisp
+
+addons:
+  apt:
+    packages:
+      - libfcgi-dev
+
+install:
+  # Install Roswell
+  - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh
+  # libuv for Wookie
+  - if ! [ -f "$HOME/libuv/include/uv.h" ]; then
+      curl -L https://github.com/libuv/libuv/archive/v1.31.0.tar.gz | tar xzf -;
+      (cd libuv-1.31.0 && ./autogen.sh && ./configure --prefix=$HOME/libuv && make && make install);
+    fi
+  # nginx
+  - if ! [ -f "$HOME/nginx/sbin/nginx" ]; then
+      curl -L http://nginx.org/download/nginx-1.8.0.tar.gz | tar xzf -;
+      (cd nginx-1.8.0 && ./configure --prefix=$HOME/nginx && make && make install);
+    fi
+  - ros install rove
+  - ros install fukamachi/dexador
+  - ros install fukamachi/fast-http
+
+before_script:
+  - nginx -c "$TRAVIS_BUILD_DIR/t/nginx.conf" -p "$HOME/nginx"
+  - ros --version
+  - ros config
+
+script:
+  - if [ "$LISP" = "sbcl-bin" ]; then
+      for file in `ls t-*.asd | grep -v wookie`; do rove $file; done
+    else
+      rove t-clack-handler-hunchentoot.asd;
+    fi
+</file>
+
+<file path="clack-handler-hunchentoot.asd">
+(defsystem "clack-handler-hunchentoot"
+  :version "0.5.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :depends-on ("hunchentoot"
+               "clack-socket"
+               "flexi-streams"
+               "bordeaux-threads"
+               "split-sequence"
+               "alexandria")
+  :components ((:file "src/handler/hunchentoot"))
+  :description "Clack handler for Hunchentoot.")
+</file>
+
+<file path="clack-handler-toot.asd">
+(defsystem "clack-handler-toot"
+  :version "0.3.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :depends-on ("toot"
+               "flexi-streams"
+               "bordeaux-threads"
+               "cl-ppcre"
+               "split-sequence"
+               "alexandria")
+  :components ((:file "src/handler/toot"))
+  :description "Clack handler for Toot.")
+</file>
+
+<file path="clack-handler-wookie.asd">
+(defsystem "clack-handler-wookie"
+  :version "0.3.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :depends-on ("wookie"
+               "clack-socket"
+               "cl-async"
+               "fast-http"
+               "quri"
+               "flexi-streams"
+               "babel"
+               "fast-io"
+               "split-sequence"
+               "alexandria")
+  :components ((:file "src/handler/wookie"))
+  :description "Clack handler for Wookie.")
+</file>
+
+<file path="clack-socket.asd">
+(defsystem "clack-socket"
+  :version "0.2.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :components ((:file "src/socket")))
+</file>
+
+<file path="clack-test.asd">
+(defsystem "clack-test"
+  :version "0.2.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :depends-on ("clack"
+               "clack-handler-hunchentoot"
+               "rove"
+               "bordeaux-threads"
+               "ironclad"
+               "usocket"
+               "dexador"
+               "flexi-streams"
+               "http-body")
+  :components ((:file "src/test")
+               (:file "src/test/suite" :depends-on ("src/test")))
+  :description "Testing Clack Applications.")
+</file>
+
+<file path="clack.asd">
+(defsystem "clack"
+  :version "2.1.0"
+  :author "Eitaro Fukamachi"
+  :license "MIT"
+  :depends-on ("lack"
+               "lack-middleware-backtrace"
+               "lack-util"
+               "bordeaux-threads"
+               "usocket"
+               "swank"
+               "alexandria"
+               "uiop")
+  :components ((:module "src"
+                :components
+                ((:file "clack" :depends-on ("handler" "util"))
+                 (:file "handler" :depends-on ("util"))
+                 (:file "util"))))
+  :description "Web application environment for Common Lisp")
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2011 Eitaro Fukamachi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="README.markdown">
+# Clack - Web Application Environment for Common Lisp
+
+[![Build Status](https://travis-ci.org/fukamachi/clack.svg?branch=master)](https://travis-ci.org/fukamachi/clack)
+[![Coverage Status](https://coveralls.io/repos/fukamachi/clack/badge.svg?branch=master)](https://coveralls.io/r/fukamachi/clack)
+[![Quicklisp dist](http://quickdocs.org/badge/clack.svg)](http://quickdocs.org/clack/)
+
+Clack is a web application environment for Common Lisp inspired by Python's WSGI and Ruby's Rack.
+
+## Usage
+
+```common-lisp
+(defvar *handler*
+    (clack:clackup
+      (lambda (env)
+        (declare (ignore env))
+        '(200 (:content-type "text/plain") ("Hello, Clack!")))))
+```
+
+Open your web browser and go to [http://localhost:5000/](http://localhost:5000/). You should get "Hello, Clack!".
+
+To stop the server, use `(clack:stop *handler*)`.
+
+## Command-line interface
+
+Clack provides a script to start a web server. It's useful when you deploy to production environment.
+
+NOTE: Install [Roswell](https://github.com/snmsts/roswell) before as it depends on it.
+
+When you execute `ros install clack`, it copies `clackup` script to `$HOME/.roswell/bin`. Make sure the path is in your shell `$PATH`.
+
+    $ ros install clack
+    $ which clackup
+    /Users/nitro_idiot/.roswell/bin/clackup
+
+    $ cat <<EOF >> app.lisp
+    (lambda (env)
+      (declare (ignore env))
+      '(200 (:content-type "text/plain") ("Hello, Clack!")))
+    EOF
+    $ clackup app.lisp
+    Hunchentoot server is started.
+    Listening on localhost:5000.
+
+## Installation
+
+```common-lisp
+(ql:quickload :clack)
+```
+
+## Documentation
+
+- [Quickdocs Page](http://quickdocs.org/clack/)
+
+## Resources
+
+* [How to build a web app with Clack/Lack (1)](https://fukamachi.hashnode.dev/how-to-build-a-web-app-with-clack-and-lack-1)
+* [jasom/clack-tutorial](https://github.com/jasom/clack-tutorial/blob/src/pages/getting-started-with-clack.org)
+
+## Server
+
+* [Hunchentoot](http://weitz.de/hunchentoot/)
+* [Wookie](http://wookie.beeets.com/)
+* [Toot](https://github.com/gigamonkey/toot)
+* [Woo](https://github.com/fukamachi/woo)
+
+## How to contribute
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## See Also
+
+* [Lack](https://github.com/fukamachi/lack): Clack application builder
+
+## Author
+
+* Eitaro Fukamachi (e.arrows@gmail.com)
+
+## Copyright
+
+Copyright (c) 2011 Eitaro Fukamachi & [contributors](https://github.com/fukamachi/clack/graphs/contributors)
+
+## License
+
+Licensed under the MIT License.
+</file>
+
+<file path="t-clack-handler-hunchentoot.asd">
+(defsystem "t-clack-handler-hunchentoot"
+  :depends-on ("clack-handler-hunchentoot"
+               "clack-test")
+  :components
+  ((:file "t/handler/hunchentoot"))
+  :perform (test-op (op c) (symbol-call '#:rove '#:run c)))
+</file>
+
+<file path="t-clack-handler-toot.asd">
+(defsystem "t-clack-handler-toot"
+  :depends-on ("clack-handler-toot"
+               "clack-test")
+  :components
+  ((:file "t/handler/toot"))
+  :perform (test-op (op c) (symbol-call '#:rove '#:run c)))
+</file>
+
+<file path="t-clack-handler-wookie.asd">
+(defsystem "t-clack-handler-wookie"
+  :depends-on (;; Some environment cannot load Wookie due to like non FFI support.
+               ;; :clack-handler-wookie
+               "clack-test")
+  :components
+  ((:file "t/handler/wookie"))
+  :perform (test-op (op c) (symbol-call '#:rove '#:run c)))
+</file>
+
+</files>

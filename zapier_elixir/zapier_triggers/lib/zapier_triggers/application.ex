@@ -9,7 +9,7 @@ defmodule ZapierTriggers.Application do
   def start(_type, _args) do
     # Skip EventQueueProcessor in test environment to reduce database connections
     queue_processor =
-      if Mix.env() == :test do
+      if Application.get_env(:zapier_triggers, :env) == :test do
         []
       else
         [ZapierTriggers.Workers.EventQueueProcessor]

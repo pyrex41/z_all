@@ -5,28 +5,48 @@
 (defvar *server* nil "Server instance")
 (defvar *app* nil "Application instance")
 
+(defun drain-stream-safely (input)
+  "CRITICAL: Drain ALL leftover bytes from stream to prevent HTTP pipelining pollution"
+  (when input
+    (handler-case
+        (loop while (listen input)
+              do (read-byte input nil nil))
+      (error (e)
+        (format t "~&[DEBUG] Stream drain completed or errored: ~A~%" e)))))
+
 (defun read-body (env)
-  "Read request body from environment - safely handle empty/malformed bodies"
+  "Read request body from environment - safely handle empty/malformed bodies.
+   ALWAYS drains stream to prevent HTTP pipelining pollution."
   (let ((content-length (getf env :content-length))
         (input (getf env :raw-body))
         (method (getf env :request-method)))
-    ;; CRITICAL: Only read body for methods that can have bodies
-    ;; Never read for GET, HEAD, DELETE, OPTIONS - prevents buffer pollution
-    (if (and content-length
-             (> content-length 0)
-             input
-             (member method '(:post :put :patch)))
-        (handler-case
-            (let ((body (make-array content-length :element-type '(unsigned-byte 8))))
-              (let ((bytes-read (read-sequence body input :start 0 :end content-length)))
-                (when (> bytes-read 0)
-                  (flexi-streams:octets-to-string
-                   (subseq body 0 bytes-read)
-                   :external-format :utf-8))))
-          (error (e)
-            (format t "~&[ERROR] Failed to read body: ~A~%" e)
-            nil))
-        nil)))
+
+    (handler-case
+        (progn
+          ;; Step 1: Read the expected body for POST/PUT/PATCH
+          (let ((body-string
+                 (if (and content-length
+                          (> content-length 0)
+                          input
+                          (member method '(:post :put :patch)))
+                     ;; Read the expected body
+                     (let ((body (make-array content-length :element-type '(unsigned-byte 8))))
+                       (let ((bytes-read (read-sequence body input :start 0 :end content-length)))
+                         (when (> bytes-read 0)
+                           (flexi-streams:octets-to-string
+                            (subseq body 0 bytes-read)
+                            :external-format :utf-8))))
+                     nil)))
+
+            ;; Step 2: ALWAYS drain remaining bytes from stream to prevent pollution
+            ;; This is critical for preventing leftover data from affecting next request
+            (when input
+              (drain-stream-safely input))
+
+            body-string))
+      (error (e)
+        (format t "~&[ERROR] Failed to read/drain body: ~A~%" e)
+        nil))))
 
 (defun parse-query-string (query-string)
   "Parse query string into alist"
@@ -86,9 +106,13 @@
           ;; Route to appropriate handler
           (case route-type
             (:health-check
+             ;; CRITICAL: Always drain stream, even for GET
+             (read-body env)
              (zapier-triggers.routes:health-check-handler env))
 
             (:queue-stats
+             ;; CRITICAL: Always drain stream, even for GET
+             (read-body env)
              (let ((stats (zapier-triggers:queue-stats)))
                (zapier-triggers.utils:json-success-response stats)))
 
@@ -97,6 +121,8 @@
               (list :body (read-body env))))
 
             (:get-key-info
+             ;; CRITICAL: Always drain stream, even for GET
+             (read-body env)
              (zapier-triggers.routes:get-key-info-handler
               (list :env env)))
 
@@ -105,6 +131,8 @@
               (list :env env :body (read-body env))))
 
             (:get-inbox
+             ;; CRITICAL: Always call read-body to drain stream, even for GET
+             (read-body env)
              (let* ((query-string (getf env :query-string))
                     (query-params (parse-query-string query-string)))
                (zapier-triggers.routes:get-inbox-handler
@@ -134,8 +162,9 @@
       #'router-handler)))))
 
 (defun start-server (&key (port 5000) (worker-num 4) (debug nil) (server :woo))
-  "Start HTTP server using Clack interface
-   :server can be :woo (default), :hunchentoot, :fcgi, or any Clack-supported server"
+  "Start HTTP server
+   :server can be :woo (async, default), :hunchentoot (stable), :fcgi, or any Clack-supported server
+   For :woo, uses WOO directly to ensure proper 0.0.0.0 binding for Fly.io deployment"
   (unless *server*
     ;; Initialize database connection
     (format t "~&[SERVER] Initializing database...~%")
@@ -150,36 +179,54 @@
     (format t "~&[SERVER] Building application...~%")
     (setf *app* (build-app))
 
-    ;; Start server using Clack
-    (format t "~&[SERVER] Starting ~A server on port ~D~A~%"
+    ;; Start server
+    (format t "~&[SERVER] Starting ~A server on 0.0.0.0:~D~A~%"
             (string-upcase (symbol-name server))
             port
             (if (eq server :woo)
                 (format nil " with ~D workers" worker-num)
                 ""))
-    (setf *server*
-          (clack:clackup *app*
-                        :server server
-                        :port port
-                        :worker-num (if (eq server :woo) worker-num nil)
-                        :debug debug
-                        :use-default-middlewares nil))
 
-    (format t "~&[SERVER] Server started successfully~%")
-    (format t "~&[SERVER] Visit http://localhost:~D/health~%" port)
-    (format t "~&[SERVER] Queue stats: http://localhost:~D/api/queue/stats~%" port)
+    (setf *server*
+          (if (eq server :woo)
+              ;; Use WOO directly with explicit address binding
+              ;; This ensures the server binds to 0.0.0.0 for Fly.io deployment
+              (woo:run *app*
+                       :address "0.0.0.0"  ; Bind to all interfaces
+                       :port port
+                       :worker-num worker-num
+                       :debug debug)
+              ;; Fall back to Clack for other servers
+              (clack:clackup *app*
+                            :server server
+                            :address "0.0.0.0"
+                            :port port
+                            :debug debug
+                            :use-default-middlewares nil)))
+
+    (format t "~&[SERVER] Server started successfully on 0.0.0.0:~D~%~%" port)
+    (format t "~&[SERVER] Health check: http://localhost:~D/health~%" port)
+    (format t "~&[SERVER] Queue stats:  http://localhost:~D/api/queue/stats~%" port)
     *server*))
 
 (defun stop-server ()
-  "Stop HTTP server (Clack-managed)"
+  "Stop HTTP server"
   (when *server*
     (format t "~&[SERVER] Stopping server...~%")
 
     ;; Stop background workers first
     (zapier-triggers:stop-workers)
 
-    ;; Stop server using Clack
-    (clack:stop *server*)
+    ;; Stop server - WOO uses woo:stop, Clack uses clack:stop
+    (handler-case
+        (if (typep *server* 'cffi:foreign-pointer)
+            ;; WOO server (returns a listener pointer)
+            (woo:stop *server*)
+            ;; Clack-managed server
+            (clack:stop *server*))
+      (error (e)
+        (format t "~&[WARNING] Error stopping server: ~A~%" e)))
+
     (setf *server* nil)
 
     ;; Disconnect database
@@ -195,7 +242,7 @@
   (start-server :port port :worker-num worker-num :debug debug :server server))
 
 (defun main ()
-  "Main entry point"
+  "Main entry point - keeps server running indefinitely"
   (let ((port (zapier-triggers.config:get-config :port))
         (workers (zapier-triggers.config:get-config :worker-count))
         (env (zapier-triggers.config:get-config :environment)))
@@ -206,5 +253,16 @@
     (start-server :port port
                   :worker-num workers
                   :debug (string= env "development"))
-    ;; Keep main thread alive
-    (loop (sleep 1))))
+    ;; WOO's run function is blocking and keeps the server alive
+    ;; The loop is only needed if WOO returns (shouldn't happen)
+    (format t "~&[SERVER] Server event loop started, keeping main thread alive...~%")
+    (handler-case
+        (loop (sleep 60))  ; Keep alive with periodic checks
+      (#+sbcl sb-sys:interactive-interrupt
+       #+ccl  ccl:interrupt-signal-condition
+       #+clisp system::simple-interrupt-condition
+       #+ecl ext:interactive-interrupt
+       #+allegro excl:interrupt-signal ()
+        (format t "~&[SERVER] Received interrupt, shutting down gracefully...~%")
+        (stop-server)
+        (uiop:quit 0)))))

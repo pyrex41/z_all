@@ -42,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
     // Database connection pool
     let pool = PgPoolOptions::new()
         .max_connections(config.max_db_connections)
+        .acquire_timeout(std::time::Duration::from_secs(3))  // Prevent indefinite waits
         .connect(&config.database_url)
         .await?;
 

@@ -33,7 +33,7 @@
                   (list :id id
                         :organization-id org-id
                         :type type
-                        :payload (jonathan:parse payload-json :as :plist)
+                        :payload payload-json  ; Keep as string - handler will parse if needed
                         :status status
                         :created-at created
                         :delivered-at delivered)))
@@ -48,7 +48,7 @@
           (list :id id
                 :organization-id org-id
                 :type type
-                :payload (jonathan:parse payload-json :as :plist)
+                :payload payload-json  ; Keep as string - handler will parse if needed
                 :status status
                 :created-at created
                 :delivered-at delivered))))))

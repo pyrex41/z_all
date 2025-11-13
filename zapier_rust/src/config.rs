@@ -57,7 +57,10 @@ fn default_webhook_secret() -> String {
 }
 
 fn default_max_connections() -> u32 {
-    50
+    std::env::var("MAX_DB_CONNECTIONS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100)  // Increased from 50 for high concurrency workloads
 }
 
 fn default_worker_count() -> usize {

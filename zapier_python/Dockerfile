@@ -5,7 +5,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml .python-version uv.lock ./
+COPY pyproject.toml .python-version uv.lock README.md ./
 
 # Install dependencies (leverages UV's cache)
 RUN uv sync --frozen --no-dev
@@ -26,11 +26,12 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/pyproject.toml /app/pyproject.toml
 
-# Add venv to PATH
+# Add venv to PATH and set PYTHONPATH to include src directory
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
 # Expose port
 EXPOSE 8000
 
-# Run with uvicorn
-CMD ["uvicorn", "zapier_triggers_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run with uvicorn using src module path
+CMD ["python", "-m", "uvicorn", "zapier_triggers_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

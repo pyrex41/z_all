@@ -1,23 +1,17 @@
 # Build stage
-FROM rust:1.76-alpine AS builder
+FROM rust:1-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+# Install build dependencies including static openssl
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
 
-# Copy dependency files first (caching layer)
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
-RUN rm -rf src
-
-# Copy actual source and migrations
+# Copy all source files
 COPY . .
-RUN touch src/main.rs
 
-# Build release binary
-RUN cargo build --release --locked
+# Build release binary (skip benches to avoid missing files)
+# Use --bins to only build binaries, not benches or tests
+RUN cargo build --release --bins
 
 # Runtime stage (minimal)
 FROM alpine:3.19

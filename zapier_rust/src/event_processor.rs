@@ -227,6 +227,6 @@ async fn process_event(db: &PgPool, event: EventToProcess) -> Result<Uuid, anyho
 pub fn create_event_processor(db: PgPool) -> Arc<EventProcessor> {
     let num_cpus = num_cpus::get();
     // Cache capacity: 10,000 events
-    // Workers: 4x CPU cores for I/O-bound work
-    Arc::new(EventProcessor::new(db, 10_000, num_cpus * 4))
+    // Workers: 2x CPU cores (reduced from 4x to prevent connection pool exhaustion)
+    Arc::new(EventProcessor::new(db, 10_000, num_cpus * 2))
 }

@@ -309,6 +309,24 @@ For comprehensive performance analysis and architectural trade-offs, see:
 
 ## 🐛 Troubleshooting
 
+**Issue: Python benchmark fails with "422 Unprocessable Entity"**
+- **Cause**: Bug in unified benchmark suite (sends wrong field name)
+- **Problem**: Benchmark sends `"data"` field, but Python expects `"payload"`
+- **Bug location**: `benchmark_single.py` line 95 (incorrect comment + wrong field)
+- **Workaround**: Use the manual benchmark that worked in Session 10:
+  ```bash
+  # Works correctly:
+  python /tmp/bench_single.py http://127.0.0.1:8001 Python
+  ```
+- **Alternative**: Fix the benchmark by changing line 95:
+  ```python
+  # Change from:
+  event_data["data"] = {"test_id": event_id, "timestamp": time.time()}
+  # To:
+  event_data["payload"] = {"test_id": event_id, "timestamp": time.time()}
+  ```
+- **Note**: All implementations use `"payload"`, not `"data"` - the comment is wrong
+
 **Issue: Rust server shows webhook delivery errors**
 - These are expected and harmless for the demo
 - They don't affect event ingestion performance

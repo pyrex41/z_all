@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from zapier_triggers_api.config import settings
+from zapier_triggers_api.database import init_db
 from zapier_triggers_api.middleware import PerformanceMonitoringMiddleware
 from zapier_triggers_api.routes import api_keys, events, health, inbox, webhooks
 
@@ -14,6 +15,12 @@ app = FastAPI(
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Initialize database on startup."""
+    await init_db()
 
 # Performance monitoring (must be first to measure full request time)
 app.add_middleware(PerformanceMonitoringMiddleware)

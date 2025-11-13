@@ -38,7 +38,7 @@
 
 (defun find-events-by-organization (org-id &key status limit offset)
   "Find events for an organization with optional filtering"
-  (let ((query "SELECT id, organization_id, event_type, payload, status, created_at, delivered_at
+  (let ((query "SELECT id, organization_id, event_type, payload::text, status, created_at, delivered_at
                 FROM events WHERE organization_id = $1")
         (params (list org-id)))
     ;; Add status filter if provided
@@ -63,7 +63,7 @@
 (defun find-event-by-id (event-id)
   "Find event by ID"
   (postmodern:query
-   "SELECT id, organization_id, event_type, payload, status, created_at, delivered_at
+   "SELECT id, organization_id, event_type, payload::text, status, created_at, delivered_at
     FROM events WHERE id = $1"
    event-id
    :row))

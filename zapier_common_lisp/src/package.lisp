@@ -14,6 +14,7 @@
                 #:make-thread)
   (:export #:start-server
            #:stop-server
+           #:main
            #:*config*
            ;; Queue functions
            #:enqueue-event
