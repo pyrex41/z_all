@@ -106,6 +106,59 @@ Dual-implementation approach with both async and synchronous architectures, feat
 
 📖 [Full Documentation](zapier_common_lisp/README.md)
 
+## 🌐 Live Deployments
+
+All implementations are deployed on Fly.io and available for testing:
+
+| Implementation | URL | Status |
+|---------------|-----|--------|
+| **Python** | https://zapier-python.fly.dev | ✅ Live |
+| **Elixir** | https://zapier-elixir.fly.dev | ✅ Live |
+| **Rust** | https://zapier-triggers-rust.fly.dev | ✅ Live |
+| **Common Lisp** | https://zapier-triggers-lisp.fly.dev | ✅ Live |
+
+### Try It Out
+
+```bash
+# Health check
+curl https://zapier-elixir.fly.dev/health
+
+# Generate API key
+curl -X POST https://zapier-elixir.fly.dev/api/keys/generate \
+  -H "Content-Type: application/json" \
+  -d '{"organization_name":"Test Org","tier":"free"}'
+```
+
+## 🚀 Benchmark Deployed Instances
+
+Benchmark any deployed implementation using the included script:
+
+```bash
+# Quick benchmark: 1000 requests, 50 concurrent
+./benchmark.sh elixir 1000 50
+
+# Stress test: 5000 requests, 100 concurrent
+./benchmark.sh rust 5000 100
+
+# Light load: 500 requests, 25 concurrent
+./benchmark.sh python 500 25
+```
+
+**Features:**
+- Automatically wakes up sleeping instances
+- Generates API keys for testing
+- Uses `wrk` for accurate HTTP benchmarking
+- Tests POST /api/events endpoint with realistic payloads
+
+**Prerequisites:** Install [wrk](https://github.com/wg/wrk)
+```bash
+# macOS
+brew install wrk
+
+# Ubuntu/Debian
+sudo apt-get install wrk
+```
+
 ## Quick Start
 
 ### Prerequisites
@@ -493,10 +546,18 @@ Built as a comparative study of modern web frameworks and programming paradigms 
 ---
 
 **Quick Links:**
-- Python API: http://localhost:8000/docs
-- Elixir API: http://localhost:4000/api/docs
-- Rust API: http://localhost:8080
-- Common Lisp API: http://localhost:5001
-- Test Suite: [unified_test_suite/](unified_test_suite/)
-- Session Logs: [log_docs/](log_docs/)
-- Comparison: [COMPARISON_SUMMARY.md](COMPARISON_SUMMARY.md)
+- **Live Deployments:**
+  - Python: https://zapier-python.fly.dev
+  - Elixir: https://zapier-elixir.fly.dev
+  - Rust: https://zapier-triggers-rust.fly.dev
+  - Common Lisp: https://zapier-triggers-lisp.fly.dev
+- **Local Development:**
+  - Python API: http://localhost:8000/docs
+  - Elixir API: http://localhost:4000/api/docs
+  - Rust API: http://localhost:8080
+  - Common Lisp API: http://localhost:5001
+- **Tools & Docs:**
+  - Benchmark Script: [./benchmark.sh](./benchmark.sh)
+  - Test Suite: [unified_test_suite/](unified_test_suite/)
+  - Session Logs: [log_docs/](log_docs/)
+  - Comparison: [COMPARISON_SUMMARY.md](COMPARISON_SUMMARY.md)
