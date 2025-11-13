@@ -38,19 +38,21 @@ A straightforward, rapid-prototyping implementation using modern Python async pa
 ### 💧 Elixir (Phoenix)
 **Status**: Production Ready | **Port**: 4000
 
-A production-grade implementation leveraging the BEAM VM's concurrency model.
+A production-grade implementation leveraging the BEAM VM's concurrency model with cache-first architecture.
 
 **Tech Stack:**
 - Phoenix 1.7
 - PostgreSQL (with Oban)
-- Cachex + Hammer
+- Triple Cachex setup (dedup, auth, event queue)
+- Hammer rate limiting
 - Prometheus metrics
 
 **Strengths:**
 - Complete feature set (10/10)
-- Lower infrastructure costs (no Redis)
-- Built-in fault tolerance
-- Excellent concurrency model
+- Multi-layer caching strategy (3 separate Cachex instances)
+- Lower infrastructure costs (no Redis needed)
+- Built-in fault tolerance and hot code reloading
+- Event queue processor for fast ingestion
 
 **Best For:** Production deployments, high scale (>500 req/s), lower ops cost
 
@@ -59,42 +61,46 @@ A production-grade implementation leveraging the BEAM VM's concurrency model.
 ### 🦀 Rust (Axum)
 **Status**: Production Ready | **Port**: 8080
 
-Ultra-high-performance implementation with dual-index caching and lock-free concurrency.
+Ultra-high-performance implementation with dual-index authentication caching and lock-free concurrency.
 
 **Tech Stack:**
 - Axum + Tokio
 - PostgreSQL (SQLx)
-- DashMap (lock-free cache)
-- Argon2 password hashing
+- DashMap (lock-free concurrent hash map)
+- Argon2id password hashing
 
 **Strengths:**
 - Exceptional performance 🏆
-- Dual-index cache optimization
+- Dual-index auth cache (hashed + plaintext keys for zero-hashing fast path)
 - Zero-cost abstractions
 - Memory safety guarantees
-- Lock-free concurrent operations
+- Lock-free concurrent operations (DashMap eliminates contention)
+- LRU eviction with TTL expiration
 
 **Best For:** Maximum performance, minimal resources, high-scale production (>10,000 req/s)
 
 📖 [Full Documentation](zapier_rust/README.md)
 
-### 🎨 Common Lisp (SBCL/Hunchentoot)
+### 🎨 Common Lisp (SBCL)
 **Status**: Production Ready | **Port**: 5001
 
-Simple, fast implementation leveraging SBCL's native compilation and synchronous architecture.
+Dual-implementation approach with both async and synchronous architectures, featuring connection pooling and thread-safe caching.
 
 **Tech Stack:**
 - SBCL (Steel Bank Common Lisp)
-- Hunchentoot web server
-- Postmodern (PostgreSQL)
+- Woo (async/event-driven) OR Hunchentoot (thread-per-request)
+- Postmodern (PostgreSQL with connection pooling)
+- Bordeaux Threads (thread safety)
 - Yason (JSON)
 
 **Strengths:**
-- Excellent performance 🥈
-- Simple synchronous model (easy to reason about)
+- Excellent performance 🥈 (119 req/s async, 70 req/s sync, 2,733 req/s health checks)
+- Two implementations: Woo (production-recommended) and Hunchentoot (simple/reliable)
+- Thread-safe connection pool (10 connections with on-demand creation)
+- Dual-layer deduplication (in-memory cache + DB constraints)
 - SBCL's high-quality native code generation
 - Direct SQL (no ORM overhead)
-- Predictable latency profile
+- Lock-based thread safety for all shared state
 
 **Best For:** Medium-traffic APIs (<10,000 req/s), teams with Lisp expertise, straightforward architectures
 
@@ -271,10 +277,10 @@ Test results are saved in `unified_test_suite/results/`:
 | **Elixir** ⚠️ | TBD | TBD | TBD | TBD | Benchmark Pending |
 
 **Key Features:**
-- **Rust**: Dual-index cache optimization, lock-free concurrency
-- **Common Lisp**: Simple synchronous architecture, native compilation
+- **Rust**: Dual-index auth cache (hashed + plaintext), DashMap lock-free concurrency, LRU+TTL eviction
+- **Common Lisp**: Dual implementations (Woo async + Hunchentoot sync), thread-safe connection pooling (10 conns), dual-layer dedup
 - **Python**: Plaintext cache optimization, async patterns
-- **Elixir**: BEAM VM concurrency, cache-first architecture
+- **Elixir**: Triple Cachex caching (dedup + auth + event queue), BEAM VM concurrency, event queue processor
 
 📊 [Detailed Comparison](COMPARISON_SUMMARY.md) | [Session Logs](log_docs/)
 
