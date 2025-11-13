@@ -131,33 +131,30 @@ curl -X POST https://zapier-elixir.fly.dev/api/keys/generate \
 
 ## 🚀 Benchmark Deployed Instances
 
-Benchmark any deployed implementation using the included script:
+Use the unified test suite's performance dashboard to benchmark any deployed implementation:
 
 ```bash
-# Quick benchmark: 1000 requests, 50 concurrent
-./benchmark.sh elixir 1000 50
+# Clone the repo and navigate to the test suite
+cd unified_test_suite
 
-# Stress test: 5000 requests, 100 concurrent
-./benchmark.sh rust 5000 100
+# Install dependencies
+uv sync
 
-# Light load: 500 requests, 25 concurrent
-./benchmark.sh python 500 25
+# Run performance benchmark against a deployment
+./run_dashboard.sh python --url https://zapier-python.fly.dev --requests 500 --concurrency 10
+./run_dashboard.sh elixir --url https://zapier-elixir.fly.dev --requests 1000 --concurrency 25
+./run_dashboard.sh rust --url https://zapier-triggers-rust.fly.dev --requests 5000 --concurrency 50
+./run_dashboard.sh lisp --url https://zapier-triggers-lisp.fly.dev --requests 1000 --concurrency 25
 ```
 
 **Features:**
-- Automatically wakes up sleeping instances
-- Generates API keys for testing
-- Uses `wrk` for accurate HTTP benchmarking
-- Tests POST /api/events endpoint with realistic payloads
+- Real-time progress tracking with live metrics
+- Comprehensive latency distribution (min, avg, median, P95, P99, max)
+- Success rate monitoring
+- Automatic API key generation
+- JSON results for further analysis
 
-**Prerequisites:** Install [wrk](https://github.com/wg/wrk)
-```bash
-# macOS
-brew install wrk
-
-# Ubuntu/Debian
-sudo apt-get install wrk
-```
+📖 See [unified_test_suite/performance_dashboard/README.md](unified_test_suite/performance_dashboard/README.md) for full documentation
 
 ## Quick Start
 
@@ -557,7 +554,7 @@ Built as a comparative study of modern web frameworks and programming paradigms 
   - Rust API: http://localhost:8080
   - Common Lisp API: http://localhost:5001
 - **Tools & Docs:**
-  - Benchmark Script: [./benchmark.sh](./benchmark.sh)
+  - Performance Dashboard: [unified_test_suite/performance_dashboard/](unified_test_suite/performance_dashboard/)
   - Test Suite: [unified_test_suite/](unified_test_suite/)
   - Session Logs: [log_docs/](log_docs/)
   - Comparison: [COMPARISON_SUMMARY.md](COMPARISON_SUMMARY.md)
