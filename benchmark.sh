@@ -94,8 +94,8 @@ echo ""
 # Step 1: Wake up the server by hitting health endpoint
 echo -e "${YELLOW}[1/3]${NC} Waking up server (hitting health endpoint)..."
 HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/health")
-HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
-HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | head -n-1)
+HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n 1)
+HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed '$d')
 
 if [ "$HEALTH_CODE" -eq 200 ]; then
     echo -e "${GREEN}✓${NC} Server is awake (HTTP $HEALTH_CODE)"
@@ -109,7 +109,7 @@ else
 
     # Retry health check
     HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE_URL/health")
-    HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
+    HEALTH_CODE=$(echo "$HEALTH_RESPONSE" | tail -n 1)
 
     if [ "$HEALTH_CODE" -ne 200 ]; then
         echo -e "${RED}Error:${NC} Server is not responding. Aborting benchmark."
@@ -148,10 +148,22 @@ if [ $DURATION -lt 10 ]; then
 fi
 
 # Create Lua script for POST requests
-LUA_SCRIPT=$(cat <<EOF
+TIMESTAMP=$(date +%s)
+LUA_SCRIPT=$(cat <<'EOF'
 wrk.method = "POST"
-wrk.body = '{"type":"benchmark.test","payload":{"benchmark_id":"'$(date +%s)'","test":"wrk"},"dedup_id":"dedup-'$(date +%s)'-"..math.random(1,999999)}'
 wrk.headers["Content-Type"] = "application/json"
+
+request = function()
+    local id = math.random(1, 999999999)
+    local body = string.format('{"type":"benchmark.test","payload":{"benchmark_id":"%d","test":"wrk"},"dedup_id":"dedup-%d"}', id, id)
+    return wrk.format(nil, nil, nil, body)
+end
+EOF
+)
+
+# Add API key to script
+LUA_SCRIPT=$(cat <<EOF
+$LUA_SCRIPT
 wrk.headers["X-API-Key"] = "$API_KEY"
 EOF
 )
